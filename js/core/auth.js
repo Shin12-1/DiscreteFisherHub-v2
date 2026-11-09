@@ -1,6 +1,10 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config.js';
 import { getLocalStorageAdapter, useLocalStorage, useStorageAdapter } from './storage.js';
 import { SupabaseAdapter } from './supabase-adapter.js';
+
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../config.js').catch(async (error) => {
+  console.warn('Optional js/config.js is unavailable; using guest-mode defaults.', error);
+  return import('../config.example.js');
+});
 
 let client = null;
 let currentSession = null;
