@@ -1,0 +1,11 @@
+[
+  {"id":"logic","title":"Logic","scopeLabel":"CHED-aligned scope","summary":"Reason precisely with statements, connectives, and quantifiers.","lessonIds":["logic-propositions","logic-truth-tables","logic-predicates"]},
+  {"id":"sets","title":"Set Theory","scopeLabel":"CHED-aligned scope","summary":"Work with collections, operations, and set notation.","lessonIds":[]},
+  {"id":"relations-functions","title":"Relations and Functions","scopeLabel":"CHED-aligned scope","summary":"Model input-output rules and relationships.","lessonIds":[]},
+  {"id":"proofs","title":"Proof Techniques","scopeLabel":"CHED-aligned scope","summary":"Build sound direct, contrapositive, and contradiction proofs.","lessonIds":[]},
+  {"id":"counting","title":"Counting","scopeLabel":"CHED-aligned scope","summary":"Count outcomes with systematic principles.","lessonIds":[]},
+  {"id":"combinatorics","title":"Combinatorics","scopeLabel":"Supplementary","summary":"Study arrangements, selections, and discrete structures.","lessonIds":[]},
+  {"id":"recurrences","title":"Recurrence Relations","scopeLabel":"Supplementary","summary":"Describe sequences through prior terms.","lessonIds":[]},
+  {"id":"graphs","title":"Graph Theory","scopeLabel":"CHED-aligned scope","summary":"Represent networks using vertices and edges.","lessonIds":[]},
+  {"id":"trees","title":"Trees","scopeLabel":"Supplementary","summary":"Explore hierarchical, cycle-free graphs.","lessonIds":[]}
+]

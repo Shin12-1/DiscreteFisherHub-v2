@@ -1,0 +1,3 @@
+const roots = { dashboard:'../pages/dashboard.html', courses:'../pages/courses.html', lessons:'../pages/lessons.html', flashcards:'../pages/flashcards.html', practice:'../pages/practice.html', quizzes:'../pages/quizzes.html', assessments:'../pages/assessments.html', progress:'../pages/progress.html', profile:'../pages/profile.html', login:'../pages/login.html' };
+export function pageUrl(page) { return location.pathname.endsWith('index.html') || location.pathname.endsWith('/') ? (page === 'dashboard' ? 'index.html' : `pages/${page}.html`) : roots[page] || roots.dashboard; }
+export function lessonUrl(id) { const prefix = location.pathname.includes('/pages/') ? 'lessons.html' : 'pages/lessons.html'; return `${prefix}?lesson=${encodeURIComponent(id)}`; }
