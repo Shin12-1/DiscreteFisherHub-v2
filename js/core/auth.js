@@ -1,17 +1,19 @@
 import { getLocalStorageAdapter, useLocalStorage, useStorageAdapter } from './storage.js';
 import { SupabaseAdapter } from './supabase-adapter.js';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../config.js').catch(async (error) => {
+const config = await import('../config.js').catch(async (error) => {
   console.warn('Optional js/config.js is unavailable; using guest-mode defaults.', error);
   return import('../config.example.js');
 });
+const SUPABASE_URL = config.SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = config.SUPABASE_PUBLISHABLE_KEY || config.SUPABASE_ANON_KEY;
 
 let client = null;
 let currentSession = null;
 const placeholder = (value) => !value || value.includes('PASTE_YOUR_');
 
 export function isSupabaseConfigured() {
-  return Boolean(SUPABASE_URL?.startsWith('https://') && !placeholder(SUPABASE_ANON_KEY));
+  return Boolean(SUPABASE_URL?.startsWith('https://') && !placeholder(SUPABASE_PUBLISHABLE_KEY));
 }
 
 async function loadBrowserClient() {
@@ -47,7 +49,7 @@ export async function initialiseAuth() {
   if (!isSupabaseConfigured()) { useLocalStorage(); return null; }
   if (!client) {
     await loadBrowserClient();
-    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
   }
   const { data, error } = await client.auth.getSession();
   if (error) throw error;
@@ -55,21 +57,38 @@ export async function initialiseAuth() {
 }
 
 export async function signUp(credentials) {
-  if (!isSupabaseConfigured()) throw new Error('Add your Supabase anon key to js/config.js before creating an account.');
+  if (!isSupabaseConfigured()) throw new Error('Configure your Supabase URL and publishable key before creating an account.');
   validateCredentials(credentials, true);
-  const { data, error } = await client.auth.signUp({ email:credentials.email.trim(), password:credentials.password, options:{ data:{ nickname:credentials.nickname.trim() } } });
+  const { data, error } = await client.auth.signUp({
+    email:credentials.email.trim(),
+    password:credentials.password,
+    options:{
+      data:{ nickname:credentials.nickname.trim() },
+      emailRedirectTo:new URL('/', location.origin).href
+    }
+  });
   if (error) throw error;
   if (data.session) await activateSession(data.session);
   return { needsEmailConfirmation:!data.session };
 }
 
 export async function signIn(credentials) {
-  if (!isSupabaseConfigured()) throw new Error('Add your Supabase anon key to js/config.js before signing in.');
+  if (!isSupabaseConfigured()) throw new Error('Configure your Supabase URL and publishable key before signing in.');
   validateCredentials(credentials);
   const { data, error } = await client.auth.signInWithPassword({ email:credentials.email.trim(), password:credentials.password });
   if (error) throw error;
   await activateSession(data.session);
   return data.session;
+}
+
+export async function resendSignupConfirmation(email) {
+  if (!client) throw new Error('Supabase is not connected. Reload the page and try again.');
+  const { error } = await client.auth.resend({
+    type:'signup',
+    email:email.trim(),
+    options:{ emailRedirectTo:new URL('/', location.origin).href }
+  });
+  if (error) throw error;
 }
 
 export async function signOut() {
