@@ -1,5 +1,6 @@
 import { getLocalStorageAdapter, useLocalStorage, useStorageAdapter } from './storage.js';
 import { SupabaseAdapter } from './supabase-adapter.js';
+import { listQuizAttempts, saveQuizAttempt } from './quiz-history.mjs';
 
 const config = await import('../config.js').catch(async (error) => {
   console.warn('Optional js/config.js is unavailable; using guest-mode defaults.', error);
@@ -31,6 +32,15 @@ function validateCredentials({ email, password, nickname }, needsNickname = fals
   if (!/^\S+@\S+\.\S+$/.test(email || '')) throw new Error('Enter a valid email address.');
   if ((password || '').length < 8) throw new Error('Use a password with at least 8 characters.');
   if (needsNickname && !/^[A-Za-z0-9 _.-]{3,32}$/.test(nickname || '')) throw new Error('Use a 3–32 character nickname with letters, numbers, spaces, dots, hyphens, or underscores.');
+}
+
+function explainAuthError(error) {
+  const text = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+  if (text.includes('over_email_send_rate_limit') || text.includes('rate limit')) return 'Too many emails were requested. Wait a few minutes (or raise the limit in Supabase Auth > Rate Limits) and try again.';
+  if (text.includes('error sending') || text.includes('smtp')) return 'Supabase could not send the email through your SMTP provider. Check the SMTP username, password and verified sender in Supabase and turboSMTP.';
+  if (text.includes('database error saving new user')) return 'That nickname is already taken. Choose a different nickname.';
+  if (text.includes('already registered')) return 'This email is already registered. Log in instead.';
+  return error?.message || 'We could not complete that request. Please try again.';
 }
 
 async function activateSession(session) {
@@ -67,7 +77,11 @@ export async function signUp(credentials) {
       emailRedirectTo:new URL('/', location.origin).href
     }
   });
-  if (error) throw error;
+  if (error) throw new Error(explainAuthError(error));
+  // With email confirmation on, Supabase hides duplicates: it returns a fake user with no identities and sends NO email.
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw new Error('This email is already registered. Log in instead, or use "Resend confirmation email" if you never confirmed it.');
+  }
   if (data.session) await activateSession(data.session);
   return { needsEmailConfirmation:!data.session };
 }
@@ -88,7 +102,7 @@ export async function resendSignupConfirmation(email) {
     email:email.trim(),
     options:{ emailRedirectTo:new URL('/', location.origin).href }
   });
-  if (error) throw error;
+  if (error) throw new Error(explainAuthError(error));
 }
 
 export async function signOut() {
@@ -105,4 +119,21 @@ export async function getLeaderboard() {
   const { data, error } = await client.from('leaderboard').select('nickname, xp');
   if (error) throw error;
   return data || [];
+}
+
+export async function getQuizAttempts() {
+  return listQuizAttempts({
+    localAdapter:getLocalStorageAdapter(),
+    client:currentSession ? client : null,
+    userId:currentSession?.user.id || null
+  });
+}
+
+export async function recordQuizAttempt(attempt) {
+  return saveQuizAttempt({
+    localAdapter:getLocalStorageAdapter(),
+    client:currentSession ? client : null,
+    userId:currentSession?.user.id || null,
+    attempt
+  });
 }

@@ -1,0 +1,131 @@
+{
+  "topicId": "logic",
+  "quizzes": [
+    {
+      "id": "logic-propositions",
+      "title": "Propositions and connectives",
+      "lessonId": "logic-propositions",
+      "questions": [
+        {
+          "id": "propositions-identify",
+          "prompt": "Which sentence is a proposition?",
+          "choices": ["Close the window.", "What time is it?", "7 is prime.", "x is even."],
+          "answerIndex": 2,
+          "explanation": "A proposition is a declarative statement with a definite truth value. '7 is prime' is true."
+        },
+        {
+          "id": "connectives-conjunction",
+          "prompt": "If p is true and q is false, what is the value of p AND q?",
+          "choices": ["True", "False", "Both true and false", "It cannot be determined."],
+          "answerIndex": 1,
+          "explanation": "A conjunction is true only when both of its parts are true."
+        },
+        {
+          "id": "connectives-inclusive-or",
+          "prompt": "In inclusive logic, what is the value of p OR q when both p and q are true?",
+          "choices": ["True", "False", "Undefined", "It depends on which is written first."],
+          "answerIndex": 0,
+          "explanation": "Inclusive OR is true when at least one part is true, including when both are true."
+        },
+        {
+          "id": "connectives-implication",
+          "prompt": "When is the implication p implies q false?",
+          "choices": ["When p and q are both true", "When p is false and q is true", "When p is true and q is false", "When p and q are both false"],
+          "answerIndex": 2,
+          "explanation": "An implication is false only when its condition p is true but its conclusion q is false."
+        },
+        {
+          "id": "connectives-biconditional",
+          "prompt": "When is p if and only if q true?",
+          "choices": ["Only when p is true", "Only when q is true", "When p and q have the same truth value", "When p and q have different truth values"],
+          "answerIndex": 2,
+          "explanation": "A biconditional is true when both sides agree: both true or both false."
+        }
+      ]
+    },
+    {
+      "id": "logic-truth-tables",
+      "title": "Truth tables and equivalences",
+      "lessonId": "logic-truth-tables",
+      "questions": [
+        {
+          "id": "truth-table-row-count",
+          "prompt": "How many rows are needed for a truth table with three propositions?",
+          "choices": ["3", "6", "8", "9"],
+          "answerIndex": 2,
+          "explanation": "Each of the three propositions has two possible truth values, so there are 2^3 = 8 assignments."
+        },
+        {
+          "id": "truth-table-false-antecedent",
+          "prompt": "If p is false and q is false, what is the value of p implies q?",
+          "choices": ["True", "False", "Undefined", "It depends on q."],
+          "answerIndex": 0,
+          "explanation": "An implication is false only for true p and false q. With p false, it is true."
+        },
+        {
+          "id": "equivalence-implication",
+          "prompt": "Which expression is logically equivalent to p implies q?",
+          "choices": ["p AND q", "NOT p OR q", "p OR NOT q", "NOT p AND q"],
+          "answerIndex": 1,
+          "explanation": "Both p implies q and NOT p OR q are false only when p is true and q is false."
+        },
+        {
+          "id": "equivalence-de-morgan",
+          "prompt": "What is equivalent to NOT (p AND q)?",
+          "choices": ["NOT p AND NOT q", "p OR q", "NOT p OR NOT q", "p AND NOT q"],
+          "answerIndex": 2,
+          "explanation": "De Morgan's law changes the conjunction to OR and negates each proposition."
+        },
+        {
+          "id": "equivalence-converse",
+          "prompt": "If p implies q is true, what can you conclude about q implies p?",
+          "choices": ["It must also be true.", "It must be false.", "It has the same truth value as p.", "The original implication does not determine it."],
+          "answerIndex": 3,
+          "explanation": "An implication does not guarantee its converse. For example, being a rectangle does not guarantee being a square."
+        }
+      ]
+    },
+    {
+      "id": "logic-predicates",
+      "title": "Predicates and quantifiers",
+      "lessonId": "logic-predicates",
+      "questions": [
+        {
+          "id": "quantifiers-existential-witness",
+          "prompt": "Over the integers, what is a witness showing that there exists an x such that x = 2?",
+          "choices": ["-1", "0", "2", "No witness exists."],
+          "answerIndex": 2,
+          "explanation": "An existential claim is established by one value in its domain that satisfies the predicate; x = 2 does."
+        },
+        {
+          "id": "quantifiers-counterexample",
+          "prompt": "What is enough to show that a statement of the form 'for every x, P(x)' is false?",
+          "choices": ["One counterexample where P(x) is false", "One example where P(x) is true", "Two examples where P(x) is true", "A different domain"],
+          "answerIndex": 0,
+          "explanation": "A universal statement is false as soon as one domain member fails to satisfy P."
+        },
+        {
+          "id": "quantifiers-negate-universal",
+          "prompt": "Which statement is equivalent to NOT (for every x, P(x))?",
+          "choices": ["For every x, NOT P(x)", "There exists an x such that NOT P(x)", "There exists an x such that P(x)", "For every x, P(x)"],
+          "answerIndex": 1,
+          "explanation": "Negating a universal quantifier produces an existential quantifier and negates its predicate."
+        },
+        {
+          "id": "quantifiers-negate-existential",
+          "prompt": "Which statement is equivalent to NOT (there exists an x such that P(x))?",
+          "choices": ["There exists an x such that NOT P(x)", "For every x, P(x)", "For every x, NOT P(x)", "NOT P(x) for one chosen x"],
+          "answerIndex": 2,
+          "explanation": "If no domain member satisfies P, then every domain member satisfies NOT P."
+        },
+        {
+          "id": "quantifiers-naturals",
+          "prompt": "Over the natural numbers, how can you show that for every n there exists an m greater than n?",
+          "choices": ["Choose m = n - 1", "Choose m = n", "Choose m = n + 1", "Choose one fixed m for every n"],
+          "answerIndex": 2,
+          "explanation": "For each natural number n, choosing m = n + 1 gives a natural number greater than n."
+        }
+      ]
+    }
+  ]
+}
