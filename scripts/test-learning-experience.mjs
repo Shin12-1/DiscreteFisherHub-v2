@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { getNextLesson, getTopicProgress, youtubeSearchUrl } from '../js/core/learning.mjs';
 import { loadPageData } from '../js/core/page-data.mjs';
 import { validateAuthFields, validateNickname } from '../js/core/auth-validation.mjs';
@@ -115,6 +117,28 @@ for (const [index, page] of pages.entries()) {
 }
 assert.match(renderPageSkeleton('not-a-page'), /Loading content/i);
 
+const themeBootstrap = readFileSync(new URL('../js/core/theme-bootstrap.js', import.meta.url), 'utf8');
+for (const [storedTheme, expectedTheme] of [['dark', 'dark'], ['light', 'light'], [null, 'light'], ['invalid', 'light']]) {
+  const document = { documentElement: { dataset: {} } };
+  runInNewContext(themeBootstrap, {
+    document,
+    localStorage: { getItem: () => storedTheme === null ? null : JSON.stringify({ theme: storedTheme }) },
+    console
+  });
+  assert.equal(document.documentElement.dataset.theme, expectedTheme, `bootstrap applies ${expectedTheme} before rendering`);
+}
+
+for (const page of ['../index.html', ...[
+  'dashboard', 'courses', 'lessons', 'quizzes', 'profile',
+  'progress', 'practice', 'assessments', 'flashcards', 'login'
+].map((page) => `../pages/${page}.html`)]) {
+  const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+  const bootstrapIndex = html.indexOf('theme-bootstrap.js');
+  const stylesIndex = html.indexOf('css/tokens.css');
+  assert.notEqual(bootstrapIndex, -1, `${page} loads the synchronous theme bootstrap`);
+  assert.ok(stylesIndex === -1 || bootstrapIndex < stylesIndex, `${page} applies the saved theme before stylesheets`);
+}
+
 Object.defineProperty(globalThis, 'location', {
   configurable: true,
   value: { pathname: '/pages/courses.html' }
@@ -163,6 +187,14 @@ assert.doesNotMatch(courses, /href="(?:\.{0,2}\/)*pages\/courses\.html".*Coming 
 const lessonView = lessonsView(logic.lessons, guestState, 'unknown-lesson');
 assert.match(lessonView, /Propositions and connectives/);
 assert.match(lessonView, /aria-label=['"]A connective map relating p and q['"]/);
+for (const lesson of logic.lessons) {
+  if (lesson.sections.some((section) => section.diagram)) {
+    const themedLesson = lessonsView(logic.lessons, guestState, lesson.id);
+    assert.doesNotMatch(themedLesson, /#(?:04113A|eaf0ff|edfff4|fff|FDEF03|01A54E)/i);
+    assert.match(themedLesson, /fill='var\(--ink\)'/);
+    assert.match(themedLesson, /var\(--surface(?:-soft)?\)/);
+  }
+}
 assert.match(lessonView, /Reveal explanation/);
 assert.match(lessonView, /youtube\.com\/results/);
 assert.doesNotMatch(lessonView, /unknown-lesson/);

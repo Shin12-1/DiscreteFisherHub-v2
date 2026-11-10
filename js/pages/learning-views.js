@@ -9,6 +9,20 @@ const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
   "'":'&#39;'
 }[char]));
 
+const themeSvgColors = {
+  '#04113a': 'var(--ink)',
+  '#eaf0ff': 'var(--surface-soft)',
+  '#edfff4': 'var(--surface-soft)',
+  '#fff': 'var(--surface)',
+  '#fdef03': 'var(--gold)',
+  '#01a54e': 'var(--green)'
+};
+
+function themeDiagram(svg) {
+  return svg.replace(/#(?:04113a|eaf0ff|edfff4|fff|fdef03|01a54e)\b/gi, (color) =>
+    themeSvgColors[color.toLowerCase()]);
+}
+
 function progressBar(label, { completed, total, percent }) {
   return `<div class="learning-progress"><div class="learning-progress-copy"><span>${escape(label)}</span><strong>${completed} of ${total} lessons · ${percent}%</strong></div><div class="progress" role="progressbar" aria-label="${escape(label)}" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><span style="width:${percent}%"></span></div></div>`;
 }
@@ -83,7 +97,7 @@ export function lessonsView(lessons, state, lessonId) {
       ? `<aside class="try-card inset" aria-labelledby="${sectionId}-practice"><span class="tag">Pause and think</span><h3 id="${sectionId}-practice">Try it yourself</h3><p>${escape(section.body)}</p><button class="button button-secondary" type="button" data-reveal="${lesson.id}" aria-controls="answer-${lesson.id}">Reveal explanation</button><div id="answer-${lesson.id}" class="answer" hidden><p><strong>Explanation:</strong> ${escape(section.tryAnswer)}</p></div></aside>`
       : '';
     const diagram = section.diagram
-      ? `<figure class="diagram inset">${section.diagram}</figure>`
+      ? `<figure class="diagram inset">${themeDiagram(section.diagram)}</figure>`
       : '';
     return `<section class="lesson-section" id="${sectionId}"><h2>${escape(section.heading)}</h2><p>${escape(section.body)}</p>${diagram}${practice}</section>`;
   }).join('');
