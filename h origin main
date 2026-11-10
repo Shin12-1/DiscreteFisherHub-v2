@@ -1,0 +1,31 @@
+ assets/SCHOOL BACKGROUND.jpg                       | Bin [31m0[m -> [32m91354[m bytes
+ assets/TFVC CCS.jpg                                | Bin [31m0[m -> [32m27861[m bytes
+ css/home.css                                       |   2 [32m+[m[31m-[m
+ css/layout.css                                     |  20 [32m+[m
+ css/pages.css                                      | 315 [32m++++++++++++[m[31m-[m
+ data/quizzes/logic.json                            | 131 [32m++++++[m
+ docs/superpowers/plans/2026-11-10-quizzes.md       |  93 [32m++++[m
+ .../2026-11-10-student-learning-experience.md      | 143 [32m++++++[m
+ .../superpowers/specs/2026-11-10-quizzes-design.md |  40 [32m++[m
+ ...026-11-10-student-learning-experience-design.md |  65 [32m+++[m
+ js/components/icons.js                             |   4 [32m+[m[31m-[m
+ js/components/loading.js                           |  30 [32m++[m
+ js/components/shell.js                             |  18 [32m+[m[31m-[m
+ js/core/auth-validation.mjs                        |  34 [32m++[m
+ js/core/auth.js                                    |  35 [32m+[m[31m-[m
+ js/core/learning.mjs                               |  29 [32m++[m
+ js/core/page-data.mjs                              |  12 [32m+[m
+ js/core/quiz-history.mjs                           | 107 [32m+++++[m
+ js/core/quiz.mjs                                   |  94 [32m++++[m
+ js/pages/app.js                                    | 496 [32m++++++++++++++++++++[m[31m-[m
+ js/pages/home-view.mjs                             |  14 [32m+[m
+ js/pages/home.js                                   |  50 [32m++[m[31m-[m
+ js/pages/learning-views.js                         |  97 [32m++++[m
+ js/pages/login.js                                  |  30 [32m+[m[31m-[m
+ js/pages/practice-views.js                         |  92 [32m++++[m
+ js/pages/student-views.js                          |  45 [32m++[m
+ pages/login.html                                   |   2 [32m+[m[31m-[m
+ scripts/test-learning-experience.mjs               | 238 [32m++++++++++[m
+ scripts/test-quizzes.mjs                           | 166 [32m+++++++[m
+ scripts/validate-data.mjs                          |   5 [32m+[m[31m-[m
+ 30 files changed, 2375 insertions(+), 32 deletions(-)
