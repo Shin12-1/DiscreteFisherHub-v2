@@ -1,15 +1,11 @@
 import { getLocalStorageAdapter, useLocalStorage, useStorageAdapter } from './storage.js';
 import { SupabaseAdapter } from './supabase-adapter.js';
 import { listQuizAttempts, saveQuizAttempt } from './quiz-history.mjs';
-
-const config = await import('../config.js').catch(async (error) => {
-  console.warn('Optional js/config.js is unavailable; using guest-mode defaults.', error);
-  return import('../config.example.js');
-});
-const SUPABASE_URL = config.SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = config.SUPABASE_PUBLISHABLE_KEY || config.SUPABASE_ANON_KEY;
+import { validateAuthFields } from './auth-validation.mjs';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../config.js';
 
 let client = null;
+let clientPromise = null;
 let currentSession = null;
 const placeholder = (value) => !value || value.includes('PASTE_YOUR_');
 
@@ -17,21 +13,46 @@ export function isSupabaseConfigured() {
   return Boolean(SUPABASE_URL?.startsWith('https://') && !placeholder(SUPABASE_PUBLISHABLE_KEY));
 }
 
+const CLIENT_LOAD_TIMEOUT_MS = 10000;
+
 async function loadBrowserClient() {
   if (window.supabase?.createClient) return;
   const source = location.pathname.includes('/pages/') ? '../js/vendor/supabase.js' : 'js/vendor/supabase.js';
   await new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = source; script.onload = resolve; script.onerror = () => reject(new Error('The local Supabase client could not load.'));
+    const timer = setTimeout(() => reject(new Error('The Supabase client took too long to load. Check your connection.')), CLIENT_LOAD_TIMEOUT_MS);
+    script.src = source;
+    script.onload = () => { clearTimeout(timer); resolve(); };
+    script.onerror = () => { clearTimeout(timer); reject(new Error('The local Supabase client could not load.')); };
     document.head.append(script);
   });
   if (!window.supabase?.createClient) throw new Error('The local Supabase client is unavailable.');
 }
 
-function validateCredentials({ email, password, nickname }, needsNickname = false) {
-  if (!/^\S+@\S+\.\S+$/.test(email || '')) throw new Error('Enter a valid email address.');
-  if ((password || '').length < 8) throw new Error('Use a password with at least 8 characters.');
-  if (needsNickname && !/^[A-Za-z0-9 _.-]{3,32}$/.test(nickname || '')) throw new Error('Use a 3–32 character nickname with letters, numbers, spaces, dots, hyphens, or underscores.');
+/** Load the (large) Supabase client only when something actually needs it. */
+async function ensureClient() {
+  if (client) return client;
+  if (!isSupabaseConfigured()) throw new Error('Configure your Supabase URL and publishable key first.');
+  clientPromise ??= (async () => {
+    await loadBrowserClient();
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    return client;
+  })().catch((error) => { clientPromise = null; throw error; });
+  return clientPromise;
+}
+
+// A guest has no saved session and is not returning from a confirmation email, so the
+// 220 KB client can wait until they sign in or open the leaderboard.
+function mayHaveSession() {
+  try {
+    const key = `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`;
+    if (localStorage.getItem(key)) return true;
+  } catch (error) {
+    console.warn('Could not check for a saved session.', error);
+  }
+  return /[#?&](access_token|refresh_token|code|error|error_code|error_description)=/.test(`${location.hash}${location.search}`);
 }
 
 function explainAuthError(error) {
@@ -40,7 +61,14 @@ function explainAuthError(error) {
   if (text.includes('error sending') || text.includes('smtp')) return 'Supabase could not send the email through your SMTP provider. Check the SMTP username, password and verified sender in Supabase and turboSMTP.';
   if (text.includes('database error saving new user')) return 'That nickname is already taken. Choose a different nickname.';
   if (text.includes('already registered')) return 'This email is already registered. Log in instead.';
+  if (text.includes('email not confirmed') || text.includes('email_not_confirmed')) return 'Confirm your email first. Check your inbox and spam folder, or use "Resend confirmation email" below.';
+  if (text.includes('invalid login credentials') || text.includes('invalid_credentials')) return 'That email and password do not match. Check them and try again.';
   return error?.message || 'We could not complete that request. Please try again.';
+}
+
+function assertValid(credentials, mode) {
+  const [firstError] = Object.values(validateAuthFields(credentials, mode));
+  if (firstError) throw new Error(firstError);
 }
 
 async function activateSession(session) {
@@ -49,32 +77,29 @@ async function activateSession(session) {
   const localState = await local.get('learner-state', {});
   const remote = new SupabaseAdapter(client, session.user, local);
   const serverState = await remote.get('learner-state', localState);
-  await remote.set('learner-state', { ...localState, nickname:serverState.nickname, completedLessons:[...new Set([...(serverState.completedLessons || []), ...(localState.completedLessons || [])])] });
+  await remote.set('learner-state', { ...localState, nickname: serverState.nickname, completedLessons: [...new Set([...(serverState.completedLessons || []), ...(localState.completedLessons || [])])] });
   useStorageAdapter(remote);
   currentSession = session;
   return session;
 }
 
 export async function initialiseAuth() {
-  if (!isSupabaseConfigured()) { useLocalStorage(); return null; }
-  if (!client) {
-    await loadBrowserClient();
-    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
-  }
-  const { data, error } = await client.auth.getSession();
+  if (!isSupabaseConfigured() || !mayHaveSession()) { useLocalStorage(); return null; }
+  const supabase = await ensureClient();
+  const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
   return activateSession(data.session);
 }
 
 export async function signUp(credentials) {
-  if (!isSupabaseConfigured()) throw new Error('Configure your Supabase URL and publishable key before creating an account.');
-  validateCredentials(credentials, true);
-  const { data, error } = await client.auth.signUp({
-    email:credentials.email.trim(),
-    password:credentials.password,
-    options:{
-      data:{ nickname:credentials.nickname.trim() },
-      emailRedirectTo:new URL('/', location.origin).href
+  assertValid(credentials, 'signup');
+  const supabase = await ensureClient();
+  const { data, error } = await supabase.auth.signUp({
+    email: credentials.email.trim(),
+    password: credentials.password,
+    options: {
+      data: { nickname: credentials.nickname.trim() },
+      emailRedirectTo: new URL('/', location.origin).href
     }
   });
   if (error) throw new Error(explainAuthError(error));
@@ -83,24 +108,24 @@ export async function signUp(credentials) {
     throw new Error('This email is already registered. Log in instead, or use "Resend confirmation email" if you never confirmed it.');
   }
   if (data.session) await activateSession(data.session);
-  return { needsEmailConfirmation:!data.session };
+  return { needsEmailConfirmation: !data.session };
 }
 
 export async function signIn(credentials) {
-  if (!isSupabaseConfigured()) throw new Error('Configure your Supabase URL and publishable key before signing in.');
-  validateCredentials(credentials);
-  const { data, error } = await client.auth.signInWithPassword({ email:credentials.email.trim(), password:credentials.password });
-  if (error) throw error;
+  assertValid(credentials, 'login');
+  const supabase = await ensureClient();
+  const { data, error } = await supabase.auth.signInWithPassword({ email: credentials.email.trim(), password: credentials.password });
+  if (error) throw new Error(explainAuthError(error));
   await activateSession(data.session);
   return data.session;
 }
 
 export async function resendSignupConfirmation(email) {
-  if (!client) throw new Error('Supabase is not connected. Reload the page and try again.');
-  const { error } = await client.auth.resend({
-    type:'signup',
-    email:email.trim(),
-    options:{ emailRedirectTo:new URL('/', location.origin).href }
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email: email.trim(),
+    options: { emailRedirectTo: new URL('/', location.origin).href }
   });
   if (error) throw new Error(explainAuthError(error));
 }
@@ -114,26 +139,28 @@ export async function signOut() {
 }
 
 export function getCurrentUser() { return currentSession?.user || null; }
+
 export async function getLeaderboard() {
   if (!isSupabaseConfigured()) return [];
-  const { data, error } = await client.from('leaderboard').select('nickname, xp');
+  const supabase = await ensureClient();
+  const { data, error } = await supabase.from('leaderboard').select('nickname, xp');
   if (error) throw error;
   return data || [];
 }
 
 export async function getQuizAttempts() {
   return listQuizAttempts({
-    localAdapter:getLocalStorageAdapter(),
-    client:currentSession ? client : null,
-    userId:currentSession?.user.id || null
+    localAdapter: getLocalStorageAdapter(),
+    client: currentSession ? client : null,
+    userId: currentSession?.user.id || null
   });
 }
 
 export async function recordQuizAttempt(attempt) {
   return saveQuizAttempt({
-    localAdapter:getLocalStorageAdapter(),
-    client:currentSession ? client : null,
-    userId:currentSession?.user.id || null,
+    localAdapter: getLocalStorageAdapter(),
+    client: currentSession ? client : null,
+    userId: currentSession?.user.id || null,
     attempt
   });
 }

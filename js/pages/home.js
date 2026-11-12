@@ -2,15 +2,9 @@ import { initialiseAuth, getCurrentUser } from '../core/auth.js';
 import { getState } from '../core/state.js';
 import { initTheme, toggleTheme } from '../core/theme.js';
 import { renderHomePage } from './home-view.mjs';
+import { escapeHtml as escape } from '../core/html.mjs';
 
 const app = document.querySelector('#home-app');
-const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
-  '&':'&amp;',
-  '<':'&lt;',
-  '>':'&gt;',
-  '"':'&quot;',
-  "'":'&#39;'
-}[char]));
 
 function renderTopics(topics) {
   const target = document.querySelector('#topic-preview');

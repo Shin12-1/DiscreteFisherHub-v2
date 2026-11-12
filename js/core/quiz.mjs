@@ -92,3 +92,20 @@ export function selectMixedQuestions(questions, count = 5, random = Math.random)
   }
   return shuffled.slice(0, count);
 }
+
+/**
+ * Return a copy of a question with its choices in a random order and answerIndex remapped.
+ * The authored answer keys put the right choice third in over half of the questions, so
+ * without this a learner can score well by pattern instead of by understanding.
+ */
+export function shuffleChoices(question, random = Math.random) {
+  if (!question || !Array.isArray(question.choices)) {
+    throw new TypeError('A question with a choices array is required.');
+  }
+  const order = selectMixedQuestions(question.choices.map((_, index) => index), question.choices.length, random);
+  return {
+    ...question,
+    choices: order.map((index) => question.choices[index]),
+    answerIndex: order.indexOf(question.answerIndex)
+  };
+}

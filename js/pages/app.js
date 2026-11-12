@@ -6,12 +6,13 @@ import { getCurrentUser, getLeaderboard, getQuizAttempts, initialiseAuth, record
 import { loadPageData } from '../core/page-data.mjs';
 import { validateNickname } from '../core/auth-validation.mjs';
 import { renderPageSkeleton } from '../components/loading.js';
+import { escapeHtml as escape } from '../core/html.mjs';
+import { mountTruthWidget } from '../components/truth-widget.mjs';
 
-let scoreQuiz;
-let selectMixedQuestions;
+let quizApi;
+let practiceApi;
 const base = location.pathname.includes('/pages/') ? '../' : '';
 const load = async (path) => { const response = await fetch(base + path); if (!response.ok) throw new Error(`Could not load ${path}`); return response.json(); };
-const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const app = document.querySelector('#app');
 const page = document.body.dataset.page;
 
@@ -20,10 +21,12 @@ async function loadPageViews(pageName) {
     ['dashboard', 'courses', 'lessons'].includes(pageName) ? import('./learning-views.js') : null,
     ['profile', 'progress'].includes(pageName) ? import('./student-views.js') : null,
     ['practice', 'assessments', 'flashcards'].includes(pageName) ? import('./practice-views.js') : null,
-    pageName === 'quizzes' ? import('../core/quiz.mjs') : null
+    ['quizzes', 'practice', 'assessments'].includes(pageName) ? import('../core/quiz.mjs') : null
   ]);
   return { learning, student, practice, quiz };
 }
+
+const withShuffledChoices = (questions) => questions.map((question) => quizApi.shuffleChoices(question));
 
 function closeMobileMore(restoreFocus = false) {
   const button = app.querySelector('[data-mobile-more-toggle]');
@@ -97,7 +100,7 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
     kind,
     mode,
     title,
-    questions,
+    questions: withShuffledChoices(questions),
     answers:Array(questions.length).fill(null),
     index:0,
     checked:false,
@@ -109,7 +112,7 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
   function render(focusSelector) {
     let content;
     if (session.phase === 'results') {
-      content = kind === 'assessment' ? assessmentResultsView(session) : practiceResultsView(session);
+      content = kind === 'assessment' ? practiceApi.assessmentResultsView(session) : practiceApi.practiceResultsView(session);
     } else {
       const question = session.questions[session.index];
       const selected = session.answers[session.index];
@@ -155,14 +158,14 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
         render('[data-learning-answer]');
         return;
       }
-      session.result = scoreQuiz(session.questions, session.answers);
+      session.result = quizApi.scoreQuiz(session.questions, session.answers);
       session.phase = 'results';
       render('#' + (kind === 'assessment' ? 'assessment-results-heading' : 'practice-results-heading'));
     });
     app.querySelector('[data-restart-learning]')?.addEventListener('click', () => {
-      if (session.mode === 'mixed-review') {
-        session.questions = selectPracticeQuestions(bank, session.mode);
-      }
+      session.questions = withShuffledChoices(session.mode === 'mixed-review'
+        ? practiceApi.selectPracticeQuestions(bank, session.mode)
+        : session.questions);
       session.answers = Array(session.questions.length).fill(null);
       session.index = 0;
       session.checked = false;
@@ -171,7 +174,7 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
       render('[data-learning-answer]');
     });
     app.querySelector('[data-restart-assessment]')?.addEventListener('click', () => {
-      session.questions = selectAssessmentQuestions(bank);
+      session.questions = withShuffledChoices(practiceApi.selectAssessmentQuestions(bank));
       session.answers = Array(session.questions.length).fill(null);
       session.index = 0;
       session.phase = 'question';
@@ -198,7 +201,7 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
     session = {
       mode,
       title,
-      questions,
+      questions: withShuffledChoices(questions),
       answers: Array(questions.length).fill(null),
       index: 0,
       checked: false,
@@ -223,7 +226,7 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
       button.addEventListener('click', () => {
         const mode = button.dataset.startQuiz;
         if (mode === 'mixed-review') {
-          start(mode, 'Mixed Logic review', selectMixedQuestions(bank.quizzes.flatMap((quiz) => quiz.questions), 5));
+          start(mode, 'Mixed Logic review', quizApi.selectMixedQuestions(bank.quizzes.flatMap((quiz) => quiz.questions), 5));
           return;
         }
         const quiz = bank.quizzes.find((item) => item.id === mode);
@@ -249,7 +252,7 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
         return;
       }
       if (session.saveStarted) return;
-      session.result = scoreQuiz(session.questions, session.answers);
+      session.result = quizApi.scoreQuiz(session.questions, session.answers);
       session.phase = 'results';
       session.saving = true;
       session.saveStarted = true;
@@ -285,35 +288,46 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
 
   render();
 }
-function dashboardExtras(user, leaderboard, leaderboardError = '') {
+function leaderboardMarkup(leaderboard, leaderboardError = '') {
+  if (leaderboardError) return `<p class="quiz-error" role="alert">${escape(leaderboardError)}</p>`;
+  if (!leaderboard.length) return '<p class="leaderboard-empty">No learners on the board yet. Complete a lesson to be the first.</p>';
+  return `<ol class="leaderboard-list">${leaderboard.map((entry, index) => `<li><span><strong class="num">${index + 1}</strong> ${escape(entry.nickname)}</span><strong class="num">${entry.xp} XP</strong></li>`).join('')}</ol>`;
+}
+function dashboardExtras(user) {
   const account = user
     ? `<article class="streak clay"><p class="tag">Synced account</p><h2>${escape(user.email)}</h2><p>Your progress is stored securely in your FVC study profile.</p><button class="button button-secondary" data-logout>Log out</button><p class="form-error dashboard-account-status" data-account-status role="alert" hidden></p></article>`
     : `<article class="streak clay"><p class="tag">Guest mode</p><h2>Keep your progress safe.</h2><p>Sign in to sync completed lessons across your devices.</p><a class="button button-primary" href="${pageUrl('login')}">Log in or sign up</a></article>`;
-  const board = leaderboardError
-    ? `<p class="quiz-error" role="alert">${escape(leaderboardError)}</p>`
-    : leaderboard.length
-      ? `<ol class="leaderboard-list">${leaderboard.map((entry, index) => `<li><span><strong class="num">${index + 1}</strong> ${escape(entry.nickname)}</span><strong class="num">${entry.xp} XP</strong></li>`).join('')}</ol>`
-      : '<p class="leaderboard-empty">The leaderboard will appear after Supabase is configured.</p>';
-  return `<section class="dashboard-grid dashboard-bottom"><div class="leaderboard clay"><div class="section-heading"><h2>Top learners</h2><span class="tag">Top 50</span></div>${board}</div><aside>${account}</aside></section>`;
+  return `<section class="dashboard-grid dashboard-bottom"><div class="leaderboard clay"><div class="section-heading"><h2>Top learners</h2><span class="tag">Top 50</span></div><div data-leaderboard aria-live="polite" aria-busy="true"><p class="leaderboard-empty">Loading top learners…</p></div></div><aside>${account}</aside></section>`;
+}
+async function fillLeaderboard() {
+  let markup;
+  try {
+    markup = leaderboardMarkup(await getLeaderboard());
+  } catch (error) {
+    console.error('Could not load the leaderboard.', error);
+    markup = leaderboardMarkup([], 'The leaderboard could not be loaded. Please try again later.');
+  }
+  const slot = app.querySelector('[data-leaderboard]');
+  if (!slot) return;
+  slot.innerHTML = markup;
+  slot.setAttribute('aria-busy', 'false');
 }
 function showLevelUp(level) { const overlay = document.createElement('div'); overlay.className = 'level-up'; overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="level-title"><p class="tag">New milestone</p><h2 id="level-title">Level ${level} unlocked!</h2><p>Your steady work earned a new level.</p><button class="button button-secondary" data-close-level>Keep learning</button></div>`; document.body.append(overlay); overlay.querySelector('button').focus(); overlay.addEventListener('click',(event) => { if (event.target === overlay || event.target.matches('[data-close-level]')) overlay.remove(); }); }
 async function render() {
   const initialTheme = document.documentElement.dataset.theme || 'light';
   app.innerHTML = shell(page, renderPageSkeleton(page), initialTheme);
   app.setAttribute('aria-busy', 'true');
+  // Fetch page data and views while the session is being restored instead of afterwards.
+  const pageAssets = Promise.all([loadPageData(page, load), loadPageViews(page)]);
+  pageAssets.catch(() => {});
   try {
     await initialiseAuth();
     await initTheme();
     const state = await touchStreak();
-    const [data, views] = await Promise.all([
-      loadPageData(page, load),
-      loadPageViews(page)
-    ]);
+    const [data, views] = await pageAssets;
     const { topics, lessons: logic, bank } = data;
-    if (views.quiz) {
-      scoreQuiz = views.quiz.scoreQuiz;
-      selectMixedQuestions = views.quiz.selectMixedQuestions;
-    }
+    quizApi = views.quiz;
+    practiceApi = views.practice;
     if (page === 'quizzes') {
       let attempts = [];
       let historyError = '';
@@ -362,40 +376,42 @@ async function render() {
     } else {
       content = '';
     }
-    if (page === 'dashboard') {
-      let leaderboard = [];
-      let leaderboardError = '';
-      try {
-        leaderboard = await getLeaderboard();
-      } catch (error) {
-        console.error('Could not load the leaderboard.', error);
-        leaderboardError = 'The leaderboard could not be loaded. Please try again later.';
-      }
-      content += dashboardExtras(getCurrentUser(), leaderboard, leaderboardError);
-    }
-    app.innerHTML = shell(page,content,state.theme);
-    app.setAttribute('aria-busy','false');
+    if (page === 'dashboard') content += dashboardExtras(getCurrentUser());
+    app.innerHTML = shell(page, content, state.theme);
+    app.setAttribute('aria-busy', 'false');
+    if (page === 'dashboard') fillLeaderboard();
     app.querySelector('[data-theme-toggle]')?.addEventListener('click', async () => {
       await toggleTheme();
       render();
     });
-    app.querySelector('[data-reveal]')?.addEventListener('click', (event) => {
-      const answer = document.querySelector(`#answer-${event.currentTarget.dataset.reveal}`);
-      answer.hidden = !answer.hidden;
-      event.currentTarget.textContent = answer.hidden ? 'Reveal answer' : 'Hide answer';
+    app.querySelectorAll('[data-reveal]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const answer = app.querySelector(`#answer-${button.dataset.reveal}`);
+        answer.hidden = !answer.hidden;
+        button.textContent = answer.hidden ? 'Reveal explanation' : 'Hide explanation';
+        button.setAttribute('aria-expanded', String(!answer.hidden));
+      });
     });
+    app.querySelectorAll('[data-widget="truth-table"]').forEach(mountTruthWidget);
     app.querySelector('[data-complete]')?.addEventListener('click', async (event) => {
-      const lesson = logic.lessons.find((item) => item.id === event.currentTarget.dataset.complete);
+      // event.currentTarget is reset to null once the handler yields, so keep our own reference.
+      const button = event.currentTarget;
+      const lesson = logic.lessons.find((item) => item.id === button.dataset.complete);
+      button.disabled = true;
       try {
         const result = await completeLesson(lesson.id, lesson.xp);
         if (result.awarded) {
-          event.currentTarget.disabled = true;
-          event.currentTarget.textContent = 'Completed ✓';
-          event.currentTarget.className = 'button button-secondary';
+          button.textContent = 'Completed ✓';
+          button.className = 'button button-secondary';
           if (result.leveledUp) showLevelUp(result.state.level);
+        } else {
+          button.textContent = 'Lesson completed';
+          button.className = 'button button-secondary';
         }
-      } catch {
-        event.currentTarget.textContent = 'Could not save. Try again.';
+      } catch (error) {
+        console.error('Could not save lesson progress.', error);
+        button.disabled = false;
+        button.textContent = 'Could not save. Try again.';
       }
     });
     app.querySelector('[data-logout]')?.addEventListener('click', async () => {
@@ -447,7 +463,7 @@ async function render() {
     app.querySelectorAll('[data-start-practice]').forEach((button) => {
       button.addEventListener('click', () => {
         const mode = button.dataset.startPractice;
-        const questions = selectPracticeQuestions(bank, mode);
+        const questions = practiceApi.selectPracticeQuestions(bank, mode);
         const title = mode === 'mixed-review'
           ? 'Mixed Logic practice'
           : bank.quizzes.find((quiz) => quiz.id === mode).title;
@@ -455,7 +471,7 @@ async function render() {
       });
     });
     app.querySelector('[data-start-assessment]')?.addEventListener('click', () => {
-      learningQuestionPage(bank, state.theme, 'assessment', 'logic-checkpoint', 'Logic checkpoint', selectAssessmentQuestions(bank));
+      learningQuestionPage(bank, state.theme, 'assessment', 'logic-checkpoint', 'Logic checkpoint', practiceApi.selectAssessmentQuestions(bank));
     });
     if (page === 'flashcards') {
       let index = 0;

@@ -1,8 +1,9 @@
 import { storage } from './storage.js';
+import { localDateKey, previousDateKey } from './dates.mjs';
 const KEY = 'learner-state';
 const defaults = { xp:0, level:1, streak:0, lastActiveDate:null, completedLessons:[], theme:'light', nickname:'Fisher learner' };
-const today = () => new Date().toISOString().slice(0,10);
-const yesterday = () => { const date = new Date(); date.setDate(date.getDate() - 1); return date.toISOString().slice(0,10); };
+const today = () => localDateKey();
+const yesterday = () => previousDateKey();
 export async function getState() { return { ...defaults, ...await storage.get(KEY, {}) }; }
 export async function saveState(next) { return storage.set(KEY, { ...defaults, ...next }); }
 export async function touchStreak() { const state = await getState(); if (storage.kind === 'supabase') return state; const now = today(); if (state.lastActiveDate === now) return state; const streak = state.lastActiveDate === yesterday() ? state.streak + 1 : 1; return saveState({ ...state, streak, lastActiveDate:now }); }

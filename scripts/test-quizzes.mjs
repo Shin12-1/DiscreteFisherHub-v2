@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import './validate-data.mjs';
-import { validateQuizBank, scoreQuiz, selectMixedQuestions } from '../js/core/quiz.mjs';
+import { validateQuizBank, scoreQuiz, selectMixedQuestions, shuffleChoices } from '../js/core/quiz.mjs';
 import { listQuizAttempts, saveQuizAttempt } from '../js/core/quiz-history.mjs';
 import { shell } from '../js/components/shell.js';
 
@@ -163,4 +163,18 @@ assert.equal((primaryNavigation.match(/<button\b/g) || []).length, 1, 'mobile qu
 assert.match(primaryNavigation, /data-mobile-more-toggle/, 'the More control should be keyboard operable');
 assert.match(moreNavigation, /<span>Quizzes<\/span>/, 'quizzes should be reachable in the mobile More menu');
 
+// shuffleChoices keeps the right answer attached to the right text
+const sample = { id: 'q', prompt: 'Pick', choices: ['a', 'b', 'c', 'd'], answerIndex: 2, explanation: 'because' };
+for (const value of [0, 0.25, 0.5, 0.75, 0.99]) {
+  const shuffled = shuffleChoices(sample, () => value);
+  assert.equal(shuffled.choices[shuffled.answerIndex], 'c');
+  assert.deepEqual([...shuffled.choices].sort(), ['a', 'b', 'c', 'd']);
+  assert.equal(shuffled.explanation, 'because');
+}
+assert.deepEqual(sample.choices, ['a', 'b', 'c', 'd'], 'the original question is not mutated');
+assert.equal(sample.answerIndex, 2);
+assert.throws(() => shuffleChoices({ prompt: 'no choices' }), TypeError);
+const positions = new Set();
+for (let seed = 0; seed < 40; seed += 1) positions.add(shuffleChoices(sample, Math.random).answerIndex);
+assert.ok(positions.size > 1, 'the right answer moves around');
 console.log('Quiz helper tests passed.');

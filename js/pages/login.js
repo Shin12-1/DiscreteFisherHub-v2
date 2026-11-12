@@ -1,19 +1,13 @@
 import { initialiseAuth, isSupabaseConfigured, resendSignupConfirmation, signIn, signUp } from '../core/auth.js';
 import { validateAuthFields } from '../core/auth-validation.mjs';
 import { renderPageSkeleton } from '../components/loading.js';
+import { escapeHtml } from '../core/html.mjs';
 
 const app = document.querySelector('#login-app');
 const dashboard = '../pages/dashboard.html';
 let mode = 'login';
 let emailValue = '';
 
-const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({
-  '&':'&amp;',
-  '<':'&lt;',
-  '>':'&gt;',
-  '"':'&quot;',
-  "'":'&#39;'
-}[char]));
 
 function render(message = '', error = '', fieldErrors = {}) {
   const signup = mode === 'signup';

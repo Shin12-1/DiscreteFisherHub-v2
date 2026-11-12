@@ -1,0 +1,21 @@
+{
+  "name": "discretefisher-hub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DiscreteFisher Hub: a Discrete Mathematics study space for Fisher Valley College students.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "serve": "python scripts/serve.py",
+    "lint": "eslint .",
+    "test": "node scripts/validate-data.mjs && node scripts/test-quizzes.mjs && node scripts/test-learning-experience.mjs && node scripts/test-widget.mjs && node scripts/test-app-smoke.mjs",
+    "check": "npm run lint && npm test"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0",
+    "jsdom": "^31.0.0"
+  }
+}

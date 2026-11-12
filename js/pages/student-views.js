@@ -1,13 +1,8 @@
 import { getTopicProgress } from '../core/learning.mjs';
 import { lessonUrl, pageUrl } from '../core/router.js';
+import { escapeHtml as escape } from '../core/html.mjs';
 
-const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
-  '&':'&amp;',
-  '<':'&lt;',
-  '>':'&gt;',
-  '"':'&quot;',
-  "'":'&#39;'
-}[char]));
+
 
 function progressBar(label, { completed, total, percent }) {
   return `<div class="learning-progress"><div class="learning-progress-copy"><span>${escape(label)}</span><strong>${completed} of ${total} lessons · ${percent}%</strong></div><div class="progress" role="progressbar" aria-label="${escape(label)}" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><span style="width:${percent}%"></span></div></div>`;

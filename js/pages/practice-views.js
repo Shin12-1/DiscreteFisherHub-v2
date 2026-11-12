@@ -1,13 +1,8 @@
 import { selectMixedQuestions } from '../core/quiz.mjs';
 import { pageUrl } from '../core/router.js';
+import { escapeHtml as escape } from '../core/html.mjs';
 
-const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
-  '&':'&amp;',
-  '<':'&lt;',
-  '>':'&gt;',
-  '"':'&quot;',
-  "'":'&#39;'
-}[char]));
+
 
 function getQuestions(bank) {
   if (!Array.isArray(bank?.quizzes)) {

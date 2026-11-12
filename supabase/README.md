@@ -9,7 +9,7 @@
    - `https://discretefisherhub.vercel.app/**`
    - `http://localhost:5173/**` for local testing
    Signup and resend-confirmation links return to the origin that started the request. Add your Vercel preview/custom domains to the allow list if you test those too.
-5. In **Project Settings → API Keys**, use only the **publishable** key in the browser app. `js/config.example.js` contains this project's URL and publishable key and is the production fallback when the optional, git-ignored `js/config.js` is absent. A local `js/config.js` can override those exports; never commit a secret/service-role key.
+5. In **Project Settings → API Keys**, use only the **publishable** key in the browser app. `js/config.js` is committed and contains this project's URL and publishable key (publishable keys are designed to be public; row-level security protects the data). Never put a secret/service-role key in it.
 6. For reliable delivery to real users, configure a custom SMTP sender under **Authentication → SMTP Settings** and verify its sender domain. Supabase's default email sender is intended for testing and has sending limits.
 
 ## Vercel and GitHub
@@ -20,8 +20,8 @@
 
    ```powershell
    git status
-   git add js/core/auth.js js/pages/login.js js/config.example.js supabase/README.md
-   git commit -m "Improve Supabase email confirmation setup"
+   git add -A
+   git commit -m "Describe your change here"
    git push origin main
    ```
 
@@ -32,3 +32,7 @@ The database stores the auth email in Supabase plus nickname and learning progre
 1. Create a test account with an inbox you can access. The confirmation link should return to the app; after confirmation, log in to sync progress.
 2. Use **Resend confirmation email** if the first email does not arrive. Check spam and confirm SMTP settings if delivery still fails.
 3. Create two test accounts in separate browser profiles. Each should see and update only its own profile/progress. Attempting to update `xp`, `level`, `streak`, or `last_active` from the browser client must fail because the authenticated role is granted update access only to `profiles.nickname`.
+
+## Optional migrations
+
+`supabase/migrations/` holds changes you can run later in the SQL Editor on an existing database (unlike `schema.sql`, they are safe to run once each, in order). Read the comment at the top of each file first.

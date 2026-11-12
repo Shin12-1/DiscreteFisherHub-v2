@@ -1,13 +1,9 @@
 import { getNextLesson, getTopicProgress, youtubeSearchUrl } from '../core/learning.mjs';
 import { lessonUrl, pageUrl } from '../core/router.js';
+import { truthWidgetMarkup } from '../components/truth-widget.mjs';
+import { escapeHtml as escape } from '../core/html.mjs';
 
-const escape = (text) => String(text).replace(/[&<>"']/g, (char) => ({
-  '&':'&amp;',
-  '<':'&lt;',
-  '>':'&gt;',
-  '"':'&quot;',
-  "'":'&#39;'
-}[char]));
+
 
 const themeSvgColors = {
   '#04113a': 'var(--ink)',
@@ -46,7 +42,7 @@ export function dashboardView(topics, lessons, state, attempts = [], attemptsErr
   const xpToLevel = xpInLevel ? 150 - xpInLevel : 150;
   const nextStep = next
     ? `<article class="continue-card clay"><div class="lesson-index">${String(lessons.indexOf(next) + 1).padStart(2, '0')}</div><div><span class="tag">${completed.length ? 'Keep your momentum' : 'Your first lesson is ready'}</span><h2>${escape(next.title)}</h2><p>Read a worked example, try a short self-check, and mark the lesson complete when you’re ready.</p><a class="button button-primary" href="${lessonUrl(next.id)}">Continue learning</a></div></article>`
-    : '<article class="learning-complete clay"><span class="tag">Logic pathway</span><h2>All Logic lessons complete</h2><p>Nice work. Revisit a lesson or check your understanding with a quiz.</p><a class="button button-primary" href="../pages/quizzes.html">Explore Logic quizzes</a></article>';
+    : `<article class="learning-complete clay"><span class="tag">Logic pathway</span><h2>All Logic lessons complete</h2><p>Nice work. Revisit a lesson or check your understanding with a quiz.</p><a class="button button-primary" href="${pageUrl('quizzes')}">Explore Logic quizzes</a></article>`;
   const topicCards = topics.map((topic) => {
     const topicProgress = getTopicProgress(topic, completed);
     const available = topic.id === 'logic';
@@ -94,12 +90,13 @@ export function lessonsView(lessons, state, lessonId) {
   const sections = lesson.sections.map((section, sectionIndex) => {
     const sectionId = `lesson-section-${sectionIndex + 1}`;
     const practice = section.tryAnswer
-      ? `<aside class="try-card inset" aria-labelledby="${sectionId}-practice"><span class="tag">Pause and think</span><h3 id="${sectionId}-practice">Try it yourself</h3><p>${escape(section.body)}</p><button class="button button-secondary" type="button" data-reveal="${lesson.id}" aria-controls="answer-${lesson.id}">Reveal explanation</button><div id="answer-${lesson.id}" class="answer" hidden><p><strong>Explanation:</strong> ${escape(section.tryAnswer)}</p></div></aside>`
+      ? `<aside class="try-card inset" aria-labelledby="${sectionId}-practice"><span class="tag">Pause and think</span><h3 id="${sectionId}-practice">Try it yourself</h3><p>${escape(section.body)}</p><button class="button button-secondary" type="button" data-reveal="${sectionId}" aria-controls="answer-${sectionId}">Reveal explanation</button><div id="answer-${sectionId}" class="answer" hidden><p><strong>Explanation:</strong> ${escape(section.tryAnswer)}</p></div></aside>`
       : '';
     const diagram = section.diagram
       ? `<figure class="diagram inset">${themeDiagram(section.diagram)}</figure>`
       : '';
-    return `<section class="lesson-section" id="${sectionId}"><h2>${escape(section.heading)}</h2><p>${escape(section.body)}</p>${diagram}${practice}</section>`;
+    const widget = section.widget === 'truth-table' ? truthWidgetMarkup() : '';
+    return `<section class="lesson-section" id="${sectionId}"><h2>${escape(section.heading)}</h2><p>${escape(section.body)}</p>${widget}${diagram}${practice}</section>`;
   }).join('');
   const video = youtubeSearchUrl(`${lesson.title} discrete mathematics lecture`);
   const lessonProgress = getTopicProgress({ lessonIds: safeLessons.map((item) => item.id) }, state.completedLessons);
