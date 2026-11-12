@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { SUPABASE_URL } from '../js/config.js';
 
 const root = resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -202,7 +203,7 @@ test('signed-in dashboard fills the leaderboard after the first paint', async ()
   };
   const client = { auth: { getSession: async () => ({ data: { session }, error: null }) }, from: query };
   const page = await openPage('pages/dashboard.html', {
-    seed: { 'sb-tmvtxcpsuoxlxbtkiadh-auth-token': { access_token: 'x' } },
+    seed: { [`sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`]: { access_token: 'x' } },
     supabase: { createClient: () => client }
   });
   await page.until(() => page.$$('.leaderboard-list li').length === 2, 'the leaderboard rows');
