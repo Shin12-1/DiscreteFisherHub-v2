@@ -8,9 +8,11 @@
 4. Under **Authentication → URL Configuration**, set the Site URL to `https://discretefisherhub-v2.vercel.app`. Add these allowed redirect URLs:
    - `https://discretefisherhub-v2.vercel.app/**`
    - `http://localhost:5173/**` for local testing
-   Signup and resend-confirmation links return to the origin that started the request. Add your Vercel preview/custom domains to the allow list if you test those too.
+   The app sends signup confirmation to `/pages/confirm-email.html`, password recovery to `/pages/reset-password.html`, magic-link sign-in to `/pages/magic-link.html`, and email change to `/pages/change-email.html`. Add your Vercel preview/custom domains to the allow list if you test those too.
 5. In **Project Settings → API Keys**, use only the **publishable** key in the browser app. `js/config.js` is committed and contains this project's URL and publishable key (publishable keys are designed to be public; row-level security protects the data). Never put a secret/service-role key in it.
 6. For reliable delivery to real users, configure a custom SMTP sender under **Authentication → SMTP Settings** and verify its sender domain. Supabase's default email sender is intended for testing and has sending limits.
+7. Keep `{{ .ConfirmationURL }}` in action email templates so Supabase verifies the link before returning to the app. For invitations created by a trusted server/admin workflow, set its redirect to `/pages/invitation.html` and allow that URL above. Do not send invitations from browser code or expose a service-role/secret key.
+8. Reauthentication sends a code to the signed-in user's email and is entered at `/pages/reauthenticate.html`. Enable the **Reauthentication** template in **Authentication → Email Templates**. The account security pages only report confirmation for a valid callback; the seven security-change templates remain notification emails.
 
 ## Vercel and GitHub
 

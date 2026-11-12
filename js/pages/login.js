@@ -44,6 +44,7 @@ function render(message = '', error = '', fieldErrors = {}) {
       <button class="button button-primary" type="submit">${signup ? 'Create account' : 'Log in'}</button>
     </form>
     <button class="text-button" data-switch>${signup ? 'Already have an account? Log in' : 'Need an account? Sign up'}</button>
+    ${!signup ? '<a class="text-button" data-forgot-password href="forgot-password.html">Forgot password?</a><a class="text-button" data-magic-link href="magic-link.html">Sign in with an email link</a>' : ''}
     ${resendButton}
     <a class="button button-secondary" href="${dashboard}">Continue as guest</a>
   `;

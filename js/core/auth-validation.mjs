@@ -32,3 +32,30 @@ export function validateAuthFields(fields, mode) {
 
   return errors;
 }
+
+export function validatePasswordResetEmail(value) {
+  return EMAIL_PATTERN.test(String(value || '').trim())
+    ? ''
+    : 'Enter a valid email address.';
+}
+
+export function validateNewPasswordFields(fields) {
+  if (!fields || typeof fields !== 'object') {
+    throw new TypeError('Password fields must be an object.');
+  }
+
+  const password = String(fields.password || '');
+  const confirmPassword = String(fields.confirmPassword || '');
+  const errors = {};
+
+  if (password.length < 8) errors.password = 'Use a password with at least 8 characters.';
+  if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match.';
+
+  return errors;
+}
+
+export function validateOtpField(value) {
+  return String(value || '').trim()
+    ? ''
+    : 'Enter the verification code.';
+}

@@ -1,7 +1,7 @@
 import { getLocalStorageAdapter, useLocalStorage, useStorageAdapter } from './storage.js';
 import { SupabaseAdapter } from './supabase-adapter.js';
 import { listQuizAttempts, saveQuizAttempt } from './quiz-history.mjs';
-import { validateAuthFields } from './auth-validation.mjs';
+import { validateAuthFields, validateNewPasswordFields, validateOtpField, validatePasswordResetEmail } from './auth-validation.mjs';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../config.js';
 
 let client = null;
@@ -71,6 +71,29 @@ function assertValid(credentials, mode) {
   if (firstError) throw new Error(firstError);
 }
 
+function authPageUrl(page) {
+  return new URL(`/pages/${page}`, location.origin).href;
+}
+
+export function isAuthCallbackRequest() {
+  return /[?&#](code|token_hash|access_token|refresh_token|error|error_code|error_description)=/.test(`${location.search}${location.hash}`);
+}
+
+function assertValidEmail(email) {
+  const error = validatePasswordResetEmail(email);
+  if (error) throw new Error(error);
+}
+
+function assertValidPassword(password) {
+  const [firstError] = Object.values(validateNewPasswordFields({ password, confirmPassword: password }));
+  if (firstError) throw new Error(firstError);
+}
+
+function assertValidOtp(token) {
+  const error = validateOtpField(token);
+  if (error) throw new Error(error);
+}
+
 async function activateSession(session) {
   if (!session?.user || !client) { useLocalStorage(); currentSession = null; return null; }
   const local = getLocalStorageAdapter();
@@ -91,6 +114,43 @@ export async function initialiseAuth() {
   return activateSession(data.session);
 }
 
+export async function waitForPasswordRecovery() {
+  if (!mayHaveSession()) return null;
+  const supabase = await ensureClient();
+  let recoverySession = null;
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') recoverySession = session;
+  });
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (!recoverySession?.user || recoverySession.user.id !== data.session?.user?.id) return null;
+    return activateSession(recoverySession);
+  } finally {
+    subscription.unsubscribe();
+  }
+}
+
+export async function waitForAuthCallback(acceptedEvents = ['SIGNED_IN']) {
+  if (!isAuthCallbackRequest()) return null;
+
+  const supabase = await ensureClient();
+  let callbackSession = null;
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    if (acceptedEvents.includes(event)) callbackSession = session;
+  });
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (!callbackSession?.user || callbackSession.user.id !== data.session?.user?.id) return null;
+    return activateSession(callbackSession);
+  } finally {
+    subscription.unsubscribe();
+  }
+}
+
 export async function signUp(credentials) {
   assertValid(credentials, 'signup');
   const supabase = await ensureClient();
@@ -99,7 +159,7 @@ export async function signUp(credentials) {
     password: credentials.password,
     options: {
       data: { nickname: credentials.nickname.trim() },
-      emailRedirectTo: new URL('/', location.origin).href
+      emailRedirectTo: authPageUrl('confirm-email.html')
     }
   });
   if (error) throw new Error(explainAuthError(error));
@@ -125,7 +185,74 @@ export async function resendSignupConfirmation(email) {
   const { error } = await supabase.auth.resend({
     type: 'signup',
     email: email.trim(),
-    options: { emailRedirectTo: new URL('/', location.origin).href }
+    options: { emailRedirectTo: authPageUrl('confirm-email.html') }
+  });
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function requestPasswordReset(email) {
+  assertValidEmail(email);
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: authPageUrl('reset-password.html')
+  });
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function updatePassword(password) {
+  assertValidPassword(password);
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function sendMagicLink(email) {
+  assertValidEmail(email);
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim(),
+    options: { emailRedirectTo: authPageUrl('magic-link.html'), shouldCreateUser: false }
+  });
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function verifyEmailOtp(email, token) {
+  assertValidEmail(email);
+  assertValidOtp(token);
+  const supabase = await ensureClient();
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim(),
+    token: token.trim(),
+    type: 'email'
+  });
+  if (error) throw new Error(explainAuthError(error));
+  return activateSession(data.session);
+}
+
+export async function requestEmailChange(email) {
+  assertValidEmail(email);
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.updateUser(
+    { email: email.trim() },
+    { emailRedirectTo: authPageUrl('change-email.html') }
+  );
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function requestReauthentication() {
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.reauthenticate();
+  if (error) throw new Error(explainAuthError(error));
+}
+
+export async function verifyReauthenticationCode(email, token) {
+  assertValidEmail(email);
+  assertValidOtp(token);
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.verifyOtp({
+    email: email.trim(),
+    token: token.trim(),
+    type: 'reauthentication'
   });
   if (error) throw new Error(explainAuthError(error));
 }
