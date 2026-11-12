@@ -5,8 +5,8 @@
 1. In the Supabase dashboard, open **SQL Editor**, create a query, paste `supabase/schema.sql`, and run it once on an empty project. This schema is not an idempotent migration; do not rerun it on a database where the tables or triggers already exist.
 2. Confirm `profiles`, `lesson_progress`, and `quiz_attempts` appear in **Table Editor** with RLS enabled, and that the `leaderboard` view exists.
 3. Under **Authentication → Sign In / Providers**, enable **Email** and require email confirmation.
-4. Under **Authentication → URL Configuration**, set the Site URL to `https://discretefisherhub.vercel.app`. Add these allowed redirect URLs:
-   - `https://discretefisherhub.vercel.app/**`
+4. Under **Authentication → URL Configuration**, set the Site URL to `https://discretefisherhub-v2.vercel.app`. Add these allowed redirect URLs:
+   - `https://discretefisherhub-v2.vercel.app/**`
    - `http://localhost:5173/**` for local testing
    Signup and resend-confirmation links return to the origin that started the request. Add your Vercel preview/custom domains to the allow list if you test those too.
 5. In **Project Settings → API Keys**, use only the **publishable** key in the browser app. `js/config.js` is committed and contains this project's URL and publishable key (publishable keys are designed to be public; row-level security protects the data). Never put a secret/service-role key in it.
