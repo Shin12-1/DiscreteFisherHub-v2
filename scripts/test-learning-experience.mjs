@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { getNextLesson, getTopicProgress, youtubeSearchUrl } from '../js/core/learning.mjs';
 import { loadPageData } from '../js/core/page-data.mjs';
+import { normalizeProfilePreferences } from '../js/core/profile-preferences.mjs';
 import { validateAuthFields, validateNickname } from '../js/core/auth-validation.mjs';
 import { renderPageSkeleton } from '../js/components/loading.js';
 import { dashboardView, coursesView, lessonsView } from '../js/pages/learning-views.js';
@@ -20,6 +21,40 @@ const lessons = [
   { id: 'logic-truth-tables', title: 'Truth tables' },
   { id: 'logic-predicates', title: 'Predicates' }
 ];
+
+assert.deepEqual(normalizeProfilePreferences(), {
+  program: '',
+  yearLevel: '',
+  weeklyGoal: 3,
+  sessionLength: 25,
+  preferredTime: 'flexible',
+  lessonStyle: 'worked-examples',
+  studyReminders: false,
+  assessmentUpdates: false,
+  reduceMotion: false
+}, 'profile preferences: supplies unset academic defaults');
+assert.deepEqual(normalizeProfilePreferences({
+  program: 'BS Computer Science',
+  yearLevel: '10th year',
+  weeklyGoal: '4',
+  sessionLength: 20,
+  preferredTime: 'midnight',
+  lessonStyle: 'lectures',
+  studyReminders: 'yes',
+  assessmentUpdates: true,
+  reduceMotion: 1,
+  unexpected: 'discarded'
+}), {
+  program: 'BS Computer Science',
+  yearLevel: '',
+  weeklyGoal: 4,
+  sessionLength: 25,
+  preferredTime: 'flexible',
+  lessonStyle: 'worked-examples',
+  studyReminders: false,
+  assessmentUpdates: true,
+  reduceMotion: false
+}, 'profile preferences: normalizes invalid and partial values');
 
 const resourcesByPage = {
   dashboard: ['data/topics.json', 'data/lessons/logic.json'],
@@ -204,9 +239,33 @@ assert.match(guestProfile, /Guest learner/);
 assert.match(guestProfile, /name="nickname"/);
 assert.match(guestProfile, /Sign in to sync/);
 assert.doesNotMatch(guestProfile, /data-logout/);
+for (const [name, label] of [
+  ['program', 'Program'],
+  ['yearLevel', 'Year level'],
+  ['weeklyGoal', 'Weekly study goal'],
+  ['sessionLength', 'Typical session length'],
+  ['preferredTime', 'Preferred study time'],
+  ['lessonStyle', 'Lesson support'],
+  ['theme', 'Appearance']
+]) {
+  assert.match(guestProfile, new RegExp(`name="${name}"`), `${name} control is present`);
+  assert.match(guestProfile, new RegExp(`<label[^>]*>${label}</label>`), `${name} control has a label`);
+}
+for (const [name, label] of [['studyReminders', 'Study reminders'], ['assessmentUpdates', 'Assessment updates'], ['reduceMotion', 'Reduce motion']]) {
+  assert.match(guestProfile, new RegExp(`name="${name}"`), `${name} control is present`);
+  assert.match(guestProfile, new RegExp(`<label class="profile-toggle"><span>${label}</span><input[^>]*name="${name}"`), `${name} control has a full-row label`);
+}
+assert.match(guestProfile, /name="program"><option value="" selected>Not set/);
+assert.match(guestProfile, /name="yearLevel"><option value="" selected>Not set/);
+assert.match(guestProfile, /data-profile-program-summary>Not set/);
+assert.match(guestProfile, /data-profile-year-summary>Not set/);
+assert.match(guestProfile, /Reminder preferences are saved locally; no notifications are sent/i);
 const accountProfile = profileView({ email: 'student@example.edu' }, guestState);
 assert.match(accountProfile, /student@example\.edu/);
 assert.match(accountProfile, /data-logout/);
+assert.match(accountProfile, /data-change-email/);
+assert.match(accountProfile, /data-reauthenticate/);
+assert.doesNotMatch(accountProfile, /name="email"/);
 
 const partialProgress = progressView(topics, logic.lessons, guestState, []);
 assert.match(partialProgress, /1 of 3 lessons/);

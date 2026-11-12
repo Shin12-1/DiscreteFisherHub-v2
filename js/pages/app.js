@@ -5,6 +5,7 @@ import { pageUrl } from '../core/router.js';
 import { getCurrentUser, getLeaderboard, getQuizAttempts, initialiseAuth, recordQuizAttempt, signOut } from '../core/auth.js';
 import { loadPageData } from '../core/page-data.mjs';
 import { validateNickname } from '../core/auth-validation.mjs';
+import { normalizeProfilePreferences } from '../core/profile-preferences.mjs';
 import { renderPageSkeleton } from '../components/loading.js';
 import { escapeHtml as escape } from '../core/html.mjs';
 import { mountTruthWidget } from '../components/truth-widget.mjs';
@@ -447,17 +448,33 @@ async function render() {
       try {
         const current = await getState();
         const nickname = input.value.trim();
-        await saveState({ ...current, nickname });
+        const profilePreferences = normalizeProfilePreferences({
+          program: form.elements.program.value,
+          yearLevel: form.elements.yearLevel.value,
+          weeklyGoal: form.elements.weeklyGoal.value,
+          sessionLength: form.elements.sessionLength.value,
+          preferredTime: form.elements.preferredTime.value,
+          lessonStyle: form.elements.lessonStyle.value,
+          studyReminders: form.elements.studyReminders.checked,
+          assessmentUpdates: form.elements.assessmentUpdates.checked,
+          reduceMotion: form.elements.reduceMotion.checked
+        });
+        const theme = form.elements.theme.value === 'dark' ? 'dark' : 'light';
+        const next = await saveState({ ...current, nickname, theme, profilePreferences });
         app.querySelector('.profile-summary h2').textContent = nickname;
         app.querySelector('.profile-avatar').textContent = nickname.charAt(0).toUpperCase();
+        app.querySelector('[data-profile-program-summary]').textContent = profilePreferences.program || 'Not set';
+        app.querySelector('[data-profile-year-summary]').textContent = profilePreferences.yearLevel || 'Not set';
         input.value = nickname;
+        document.documentElement.dataset.theme = next.theme;
+        document.documentElement.dataset.reduceMotion = String(next.profilePreferences.reduceMotion);
         status.hidden = false;
-        status.textContent = 'Nickname saved.';
+        status.textContent = 'Profile settings saved.';
       } catch (error) {
-        console.error('Could not save profile nickname.', error);
+        console.error('Could not save profile settings.', error);
         status.hidden = false;
         status.setAttribute('role', 'alert');
-        status.textContent = 'Could not save your nickname. Please try again.';
+        status.textContent = 'Could not save your profile settings. Please try again.';
       }
     });
     app.querySelectorAll('[data-start-practice]').forEach((button) => {

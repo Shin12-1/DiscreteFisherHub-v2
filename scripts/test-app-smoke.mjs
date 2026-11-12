@@ -91,7 +91,7 @@ async function withAuthApi(auth, run) {
   }
 }
 
-function createSessionClient(session, authOverrides = {}, callbackEvent = null) {
+function createSessionClient(session, authOverrides = {}, callbackEvent = null, databaseCalls = []) {
   let authListener = null;
   const auth = {
     getSession: async () => {
@@ -117,7 +117,7 @@ function createSessionClient(session, authOverrides = {}, callbackEvent = null) 
         select: () => chain,
         eq: () => chain,
         single: () => Promise.resolve(result),
-        update: () => chain,
+        update: (payload) => { databaseCalls.push({ table, payload }); return chain; },
         upsert: async () => ({ error: null }),
         then: (resolve, reject) => Promise.resolve(result).then(resolve, reject)
       };
@@ -491,6 +491,52 @@ test('signed-in profile exposes account security links while guest profile does 
   page.done();
 });
 
+test('profile: guest with legacy state gets local preference defaults', async () => {
+  const page = await openPage('pages/profile.html', {
+    seed: { 'dfh:learner-state': { nickname: 'Legacy learner', xp: 25, completedLessons: [] } }
+  });
+  const { getState } = await import('../js/core/state.js');
+  const state = await getState();
+  assert.deepEqual(state.profilePreferences, {
+    program: '',
+    yearLevel: '',
+    weeklyGoal: 3,
+    sessionLength: 25,
+    preferredTime: 'flexible',
+    lessonStyle: 'worked-examples',
+    studyReminders: false,
+    assessmentUpdates: false,
+    reduceMotion: false
+  });
+  page.done();
+});
+
+test('profile: signed-in preferences save locally without syncing', async () => {
+  const session = { user: { id: 'user-profile-preferences', email: 'student@example.com' } };
+  const databaseCalls = [];
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
+  });
+  const { getState, saveState } = await import('../js/core/state.js');
+  const state = await getState();
+  const profilePreferences = {
+    program: 'BS Computer Science',
+    yearLevel: '2nd year',
+    weeklyGoal: 4,
+    sessionLength: 40,
+    preferredTime: 'evening',
+    lessonStyle: 'practice-first',
+    studyReminders: true,
+    assessmentUpdates: false,
+    reduceMotion: true
+  };
+  await saveState({ ...state, nickname: 'Kian Reyes', profilePreferences });
+  assert.deepEqual(page.storage('dfh:profile-preferences'), profilePreferences);
+  assert.deepEqual(databaseCalls, [{ table: 'profiles', payload: { nickname: 'Kian Reyes' } }]);
+  page.done();
+});
+
 test('change-email request requires a signed-in user and validates the new address', async () => {
   const guest = await openPage('pages/change-email.html');
   assert.match(guest.text(), /sign in to change your email/i);
@@ -702,8 +748,74 @@ test('profile: saving a nickname updates the page', async () => {
   const page = await openPage('pages/profile.html');
   const input = page.$('#profile-nickname'); input.value = 'Kian Reyes';
   page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
-  await page.until(() => /Nickname saved/.test(page.text()), 'the nickname to save');
+  await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
   assert.equal(page.storage('dfh:learner-state').nickname, 'Kian Reyes');
+  page.done();
+});
+
+test('profile: saves preferences and applies appearance settings', async () => {
+  const page = await openPage('pages/profile.html');
+  const form = page.$('[data-profile-form]');
+  form.elements.nickname.value = 'Kian Reyes';
+  form.elements.program.value = 'BS Information Technology';
+  form.elements.yearLevel.value = '2nd year';
+  form.elements.weeklyGoal.value = '4';
+  form.elements.sessionLength.value = '40';
+  form.elements.preferredTime.value = 'evening';
+  form.elements.lessonStyle.value = 'practice-first';
+  form.elements.studyReminders.checked = true;
+  form.elements.assessmentUpdates.checked = true;
+  form.elements.theme.value = 'dark';
+  form.elements.reduceMotion.checked = true;
+  form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+  await page.until(() => /Profile settings saved/.test(page.text()), 'profile settings to save');
+
+  assert.deepEqual(page.storage('dfh:profile-preferences'), {
+    program: 'BS Information Technology',
+    yearLevel: '2nd year',
+    weeklyGoal: 4,
+    sessionLength: 40,
+    preferredTime: 'evening',
+    lessonStyle: 'practice-first',
+    studyReminders: true,
+    assessmentUpdates: true,
+    reduceMotion: true
+  });
+  assert.equal(page.storage('dfh:learner-state').nickname, 'Kian Reyes');
+  assert.equal(page.storage('dfh:learner-state').theme, 'dark');
+  assert.equal('profilePreferences' in page.storage('dfh:learner-state'), false);
+  assert.equal(page.$('.profile-summary h2').textContent, 'Kian Reyes');
+  assert.equal(page.$('[data-profile-program-summary]').textContent, 'BS Information Technology');
+  assert.equal(page.$('[data-profile-year-summary]').textContent, '2nd year');
+  assert.equal(page.window.document.documentElement.dataset.theme, 'dark');
+  assert.equal(page.window.document.documentElement.dataset.reduceMotion, 'true');
+  page.done();
+});
+
+test('profile: invalid nickname prevents all profile changes', async () => {
+  const page = await openPage('pages/profile.html');
+  const initialState = page.storage('dfh:learner-state');
+  const initialPreferences = page.storage('dfh:profile-preferences');
+  const form = page.$('[data-profile-form]');
+  form.elements.nickname.value = 'x';
+  form.elements.theme.value = 'dark';
+  form.elements.reduceMotion.checked = true;
+  form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+
+  assert.equal(page.$('#profile-nickname').getAttribute('aria-invalid'), 'true');
+  assert.match(page.$('#profile-nickname-error').textContent, /3–32/);
+  assert.deepEqual(page.storage('dfh:learner-state'), initialState);
+  assert.deepEqual(page.storage('dfh:profile-preferences'), initialPreferences);
+  assert.equal(page.window.document.documentElement.dataset.theme, 'light');
+  assert.notEqual(page.window.document.documentElement.dataset.reduceMotion, 'true');
+  page.done();
+});
+
+test('profile: applies saved reduced motion on initialization', async () => {
+  const page = await openPage('pages/profile.html', {
+    seed: { 'dfh:profile-preferences': { reduceMotion: true } }
+  });
+  assert.equal(page.window.document.documentElement.dataset.reduceMotion, 'true');
   page.done();
 });
 

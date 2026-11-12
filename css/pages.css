@@ -169,22 +169,40 @@
 }
 .profile-layout { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:18px; align-items:start; }
 .profile-summary,.profile-editor,.profile-account { min-width:0; padding:24px; }
-.profile-summary { display:flex; align-items:center; gap:18px; }
+.profile-summary { display:grid; gap:18px; }
+.profile-id { display:flex; align-items:center; gap:18px; }
 .profile-summary h2 { margin:0 0 6px; overflow-wrap:anywhere; }
 .profile-summary p { margin:0 0 12px; color:var(--muted); overflow-wrap:anywhere; }
 .profile-avatar { width:64px; height:64px; flex:0 0 auto; display:grid; place-items:center; color:var(--navy); background:var(--gold); border-radius:20px; font-size:1.6rem; font-weight:900; }
-.profile-editor { display:grid; gap:12px; }
-.profile-editor h2,.profile-account h2 { margin:0; }
-.profile-editor > p,.profile-account > p { color:var(--muted); }
+.profile-summary-details { display:grid; gap:10px; padding-top:16px; margin:0; border-top:1px solid var(--border); }
+.profile-summary-details > div { display:flex; justify-content:space-between; gap:12px; }
+.profile-summary-details dt { color:var(--muted); font-size:.9rem; }
+.profile-summary-details dd { margin:0; font-weight:700; text-align:right; overflow-wrap:anywhere; }
+.profile-editor { display:grid; gap:20px; }
+.profile-editor-heading { display:grid; gap:8px; }
+.profile-editor-heading .tag { justify-self:start; }
+.profile-editor-heading h2 { margin:0; }
+.profile-editor-heading > p:last-child { margin:0; color:var(--muted); }
+.profile-settings-group { display:grid; gap:12px; padding-top:18px; border-top:1px solid var(--border); }
+.profile-settings-group h3 { margin:0; font-size:1.05rem; }
+.profile-field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.profile-field-wide { grid-column:1/-1; }
 .profile-editor label { font-weight:800; }
-.profile-editor input { width:100%; min-height:48px; padding:10px 12px; color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+.profile-editor input:not([type="checkbox"]),.profile-editor select { width:100%; min-height:48px; padding:10px 12px; color:var(--ink); background:var(--surface); border:1px solid var(--field-border); border-radius:12px; }
 .profile-editor input[aria-invalid="true"] { border-color:#a42424; }
 .profile-editor small { color:var(--muted); line-height:1.5; }
 .field-error { margin:0; color:#a42424; font-weight:700; }
 [data-theme="dark"] .field-error { color:#ffb4b4; }
 .profile-editor .form-message { margin:0; }
+.profile-toggle-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.profile-toggle { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; padding:10px 12px; background:var(--surface-soft); border:1px solid var(--border); border-radius:12px; cursor:pointer; }
+.profile-toggle > span { line-height:1.35; }
+.profile-toggle input { width:24px; min-width:24px; height:24px; margin:0; accent-color:var(--navy); cursor:pointer; }
+.profile-note { margin:0; color:var(--muted); font-size:.95rem; }
 .profile-editor .button,.profile-account .button { justify-self:start; }
-.profile-account { margin-top:18px; }
+.profile-account { display:grid; gap:12px; margin-top:18px; }
+.profile-account h2 { margin:0; }
+.profile-account > p { margin:0; color:var(--muted); }
 .progress-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
 .progress-stat { display:grid; gap:8px; padding:20px; }
 .progress-stat > span { color:var(--muted); font-weight:800; }
@@ -213,6 +231,8 @@
 @media (max-width:560px) {
   .progress-summary-grid { grid-template-columns:1fr; }
   .profile-summary,.profile-editor,.profile-account { padding:18px; }
+  .profile-field-grid,.profile-toggle-list { grid-template-columns:1fr; }
+  .profile-field-wide { grid-column:auto; }
   .profile-editor .button,.profile-account .button { width:100%; }
 }
 .practice-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:18px; }
