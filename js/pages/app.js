@@ -5,6 +5,9 @@ import { pageUrl } from '../core/router.js';
 import { getCurrentUser, getLeaderboard, getQuizAttempts, initialiseAuth, recordQuizAttempt, signOut } from '../core/auth.js';
 import { loadPageData } from '../core/page-data.mjs';
 import { validateNickname } from '../core/auth-validation.mjs';
+import { normalizeProfilePreferences } from '../core/profile-preferences.mjs';
+import { getLocalStorageAdapter } from '../core/storage.js';
+import { getDashboardActivity, recordDashboardActivity, setDashboardGoal } from '../core/dashboard-activity.mjs';
 import { renderPageSkeleton } from '../components/loading.js';
 import { escapeHtml as escape } from '../core/html.mjs';
 import { mountTruthWidget } from '../components/truth-widget.mjs';
@@ -15,6 +18,14 @@ const base = location.pathname.includes('/pages/') ? '../' : '';
 const load = async (path) => { const response = await fetch(base + path); if (!response.ok) throw new Error(`Could not load ${path}`); return response.json(); };
 const app = document.querySelector('#app');
 const page = document.body.dataset.page;
+
+function recordDashboardEvent(event, errorMessage) {
+  return recordDashboardActivity({
+    localAdapter: getLocalStorageAdapter(),
+    userId: getCurrentUser()?.id || null,
+    event
+  }).catch((error) => console.error(errorMessage, error));
+}
 
 async function loadPageViews(pageName) {
   const [learning, student, practice, quiz] = await Promise.all([
@@ -61,8 +72,9 @@ document.addEventListener('click', (event) => {
 function quizLobby(topics, bank, attempts, historyError) {
   const cards = bank.quizzes.map((quiz) => {
     const latest = attempts.find((attempt) => attempt.mode === quiz.id);
-    return `<article class="quiz-card clay"><p class="tag">Logic · 5 questions</p><h2>${escape(quiz.title)}</h2><p>Practice the ideas from this lesson and see an explanation after each answer.</p>${latest ? `<p class="quiz-last-score">Latest: <strong class="num">${latest.score} / ${latest.total}</strong></p>` : '<p class="quiz-last-score">No attempts yet</p>'}<button class="button button-primary" type="button" data-start-quiz="${escape(quiz.id)}">Start quiz</button></article>`;
+    return `<article class="quiz-card clay"><p class="tag">Logic · ${quiz.questions.length} questions</p><h2>${escape(quiz.title)}</h2><p>Practice the ideas from this lesson and see an explanation after each answer.</p>${latest ? `<p class="quiz-last-score">Latest: <strong class="num">${latest.score} / ${latest.total}</strong></p>` : '<p class="quiz-last-score">No attempts yet</p>'}<button class="button button-primary" type="button" data-start-quiz="${escape(quiz.id)}">Start quiz</button></article>`;
   }).join('');
+  const mixedReview = '<article class="quiz-card quiz-card-mixed clay"><p class="tag">All Logic lessons</p><h2>Mixed Logic review</h2><p>Try five questions sampled from the available Logic lessons.</p><p class="quiz-last-score">Questions are mixed for each attempt.</p><button class="button button-primary" type="button" data-start-quiz="mixed-review">Start mixed review</button></article>';
   const history = attempts.length ? `<ol class="quiz-history-list">${attempts.map((attempt) => {
     const title = attempt.mode === 'mixed-review' ? 'Mixed Logic review' : bank.quizzes.find((quiz) => quiz.id === attempt.mode)?.title || 'Logic practice';
     const date = new Date(attempt.taken_at);
@@ -70,7 +82,13 @@ function quizLobby(topics, bank, attempts, historyError) {
     return `<li><span><strong>${escape(title)}</strong><small>${escape(takenAt)}</small></span><strong class="num">${attempt.score} / ${attempt.total}</strong></li>`;
   }).join('')}</ol>` : '<p>No attempts yet. Complete a quiz to build your history.</p>';
   const unavailable = topics.filter((topic) => topic.id !== bank.topicId).map((topic) => `<article class="quiz-unavailable-card"><h3>${escape(topic.title)}</h3><span class="tag">Not available yet</span></article>`).join('');
-  return `<section class="quiz-intro clay"><p class="tag">Low-stakes practice · no XP</p><h1 id="quiz-page-heading" tabindex="-1">Check your understanding.</h1><p>Build confidence with the Logic lessons that are ready now. Answer one question at a time, learn from each explanation, and retry anything you missed.</p></section><section class="quiz-section" aria-labelledby="available-quizzes-heading"><div class="section-heading"><div><h2 id="available-quizzes-heading">Available quizzes</h2><p>Untimed practice. Your quiz scores do not affect your level or lesson progress.</p></div></div><div class="quiz-grid">${cards}<article class="quiz-card quiz-card-mixed clay"><p class="tag">All Logic lessons</p><h2>Mixed Logic review</h2><p>Try five questions sampled from the available Logic lessons.</p><p class="quiz-last-score">Questions are mixed for each attempt.</p><button class="button button-primary" type="button" data-start-quiz="mixed-review">Start mixed review</button></article></div></section><section class="quiz-history clay" aria-labelledby="quiz-history-heading"><div class="section-heading"><div><h2 id="quiz-history-heading">Recent attempts</h2><p>Latest 20 attempts on this device or signed-in account.</p></div></div>${historyError ? `<p class="quiz-error" role="alert">${escape(historyError)}</p>` : history}</section><section class="quiz-section" aria-labelledby="more-quizzes-heading"><div class="section-heading"><div><h2 id="more-quizzes-heading">More topics</h2><p>These quizzes will appear when lesson content and questions are ready.</p></div></div><div class="quiz-unavailable-grid">${unavailable}</div></section>`;
+  return `<div class="quiz-catalogue">
+    <section class="quiz-intro clay"><p class="tag">Low-stakes practice · no XP</p><h1 id="quiz-page-heading" tabindex="-1">Check your understanding.</h1><p>Build confidence with the Logic lessons that are ready now. Answer one question at a time, learn from each explanation, and retry anything you missed.</p></section>
+    <section class="quiz-section" aria-labelledby="available-quizzes-heading"><div class="section-heading"><div><h2 id="available-quizzes-heading">Available quizzes</h2><p>Untimed practice. Your quiz scores do not affect your level or lesson progress.</p></div></div><div class="quiz-grid">${cards}</div></section>
+    <section class="quiz-mixed-section" aria-labelledby="mixed-review-heading"><div class="section-heading"><div><h2 id="mixed-review-heading">Mixed review</h2><p>Revisit ideas from across the available Logic lessons.</p></div></div>${mixedReview}</section>
+    <section class="quiz-history clay" aria-labelledby="quiz-history-heading"><div class="section-heading"><div><h2 id="quiz-history-heading">Recent attempts</h2><p>Latest 20 attempts on this device or signed-in account.</p></div></div>${historyError ? `<p class="quiz-error" role="alert">${escape(historyError)}</p>` : history}</section>
+    <section class="quiz-section" aria-labelledby="more-quizzes-heading"><div class="section-heading"><div><h2 id="more-quizzes-heading">More topics</h2><p>These quizzes will appear when lesson content and questions are ready.</p></div></div><div class="quiz-unavailable-grid">${unavailable}</div></section>
+  </div>`;
 }
 function quizQuestionView(session) {
   const question = session.questions[session.index];
@@ -257,6 +275,13 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
       session.saving = true;
       session.saveStarted = true;
       render('#quiz-results-title');
+      await recordDashboardEvent({
+        type: 'quiz-attempt',
+        mode: session.mode,
+        score: session.result.score,
+        total: session.result.total,
+        missedQuestionIds: session.result.missedQuestions.map((question) => question.id)
+      }, 'Could not save local dashboard quiz activity.');
       try {
         const savedAttempt = await recordQuizAttempt({
           topicId: bank.topicId,
@@ -351,7 +376,15 @@ async function render() {
         console.error('Could not load dashboard quiz history.', error);
         attemptsError = 'Recent quiz attempts could not be loaded.';
       }
-      content = views.learning.dashboardView(topics, logic.lessons, state, attempts, attemptsError);
+      const activity = await getDashboardActivity({
+        localAdapter: getLocalStorageAdapter(),
+        userId: getCurrentUser()?.id || null
+      });
+      content = views.learning.dashboardView(topics, logic.lessons, state, attempts, attemptsError, {
+        activity,
+        notices: data.notices,
+        questions: bank
+      });
     } else if (page === 'courses') {
       content = views.learning.coursesView(topics, logic.lessons, state);
     } else if (page === 'lessons') {
@@ -384,6 +417,36 @@ async function render() {
       await toggleTheme();
       render();
     });
+    app.querySelector('[data-dashboard-goal]')?.addEventListener('change', async (event) => {
+      const control = event.currentTarget;
+      const status = app.querySelector('[data-dashboard-goal-status]');
+      control.disabled = true;
+      try {
+        await setDashboardGoal({
+          localAdapter: getLocalStorageAdapter(),
+          userId: getCurrentUser()?.id || null,
+          goal: control.value
+        });
+        control.dataset.savedGoal = control.value;
+        const isLessonGoal = control.value === 'lesson';
+        const target = isLessonGoal ? 1 : 10;
+        const count = Number(isLessonGoal ? control.dataset.lessonCount : control.dataset.flashcardCount);
+        const progress = Math.min(count, target);
+        const progressBar = app.querySelector('[data-dashboard-goal-progress]');
+        app.querySelector('[data-dashboard-goal-progress-copy]').textContent = `${progress} of ${target} ${isLessonGoal ? 'lesson' : 'cards'}`;
+        progressBar.setAttribute('aria-valuemax', String(target));
+        progressBar.setAttribute('aria-valuenow', String(progress));
+        progressBar.querySelector('span').style.width = `${progress / target * 100}%`;
+        status.hidden = true;
+      } catch (error) {
+        console.error('Could not save dashboard daily goal.', error);
+        control.value = control.dataset.savedGoal;
+        status.hidden = false;
+        status.textContent = 'Could not save your daily goal. Please try again.';
+      } finally {
+        control.disabled = false;
+      }
+    });
     app.querySelectorAll('[data-reveal]').forEach((button) => {
       button.addEventListener('click', () => {
         const answer = app.querySelector(`#answer-${button.dataset.reveal}`);
@@ -401,6 +464,10 @@ async function render() {
       try {
         const result = await completeLesson(lesson.id, lesson.xp);
         if (result.awarded) {
+          await recordDashboardEvent({
+            type: 'lesson-completed',
+            id: lesson.id
+          }, 'Could not save local dashboard lesson activity.');
           button.textContent = 'Completed ✓';
           button.className = 'button button-secondary';
           if (result.leveledUp) showLevelUp(result.state.level);
@@ -447,17 +514,31 @@ async function render() {
       try {
         const current = await getState();
         const nickname = input.value.trim();
-        await saveState({ ...current, nickname });
+        const profilePreferences = normalizeProfilePreferences({
+          program: form.elements.program.value,
+          yearLevel: form.elements.yearLevel.value,
+          weeklyGoal: form.elements.weeklyGoal.value,
+          sessionLength: form.elements.sessionLength.value,
+          preferredTime: form.elements.preferredTime.value,
+          lessonStyle: form.elements.lessonStyle.value,
+          studyReminders: form.elements.studyReminders.checked,
+          assessmentUpdates: form.elements.assessmentUpdates.checked,
+          reduceMotion: form.elements.reduceMotion.checked
+        });
+        const theme = form.elements.theme.value === 'dark' ? 'dark' : 'light';
+        const next = await saveState({ ...current, nickname, theme, profilePreferences });
         app.querySelector('.profile-summary h2').textContent = nickname;
         app.querySelector('.profile-avatar').textContent = nickname.charAt(0).toUpperCase();
         input.value = nickname;
+        document.documentElement.dataset.theme = next.theme;
+        document.documentElement.dataset.reduceMotion = String(next.profilePreferences.reduceMotion);
         status.hidden = false;
-        status.textContent = 'Nickname saved.';
+        status.textContent = 'Profile settings saved.';
       } catch (error) {
-        console.error('Could not save profile nickname.', error);
+        console.error('Could not save profile settings.', error);
         status.hidden = false;
         status.setAttribute('role', 'alert');
-        status.textContent = 'Could not save your nickname. Please try again.';
+        status.textContent = 'Could not save your profile settings. Please try again.';
       }
     });
     app.querySelectorAll('[data-start-practice]').forEach((button) => {
@@ -484,7 +565,15 @@ async function render() {
       };
       const bind = () => {
         container.querySelector('[data-flashcard-reveal]')?.addEventListener('click', () => {
+          const wasRevealed = revealed;
           revealed = !revealed;
+          if (!wasRevealed) {
+            const id = container.querySelector('.flashcard-panel')?.dataset.flashcardId;
+            recordDashboardEvent({
+              type: 'flashcard-revealed',
+              id
+            }, 'Could not save local dashboard flashcard activity.');
+          }
           update('[data-flashcard-reveal]');
         });
         container.querySelector('[data-flashcard-previous]')?.addEventListener('click', () => {

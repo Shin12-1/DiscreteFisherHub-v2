@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { SUPABASE_URL } from '../js/config.js';
+import { renderHomePage } from '../js/pages/home-view.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -67,7 +68,18 @@ async function openPage(file, { seed = {}, supabase = null, search = '' } = {}) 
       for (let waited = 0; waited < 3000; waited += 10) { if (check()) return; await sleep(10); }
       assert.fail(`timed out waiting for ${label}`);
     },
-    done() { console.error = originalError; assert.deepEqual(errors, [], `console.error during ${file}: ${errors.join(' | ')}`); window.close(); }
+    done(expectedErrors = []) {
+      console.error = originalError;
+      for (const expected of expectedErrors) {
+        assert.ok(errors.some((error) => error.includes(expected)), `expected console.error containing ${expected}`);
+      }
+      assert.deepEqual(
+        errors.filter((error) => !expectedErrors.some((expected) => error.includes(expected))),
+        [],
+        `unexpected console.error during ${file}: ${errors.join(' | ')}`
+      );
+      window.close();
+    }
   };
   assert.equal(host.getAttribute('aria-busy'), 'false', `${file} never finished loading. console.error: ${errors.join(' | ') || 'none'}`);
   return page;
@@ -91,7 +103,7 @@ async function withAuthApi(auth, run) {
   }
 }
 
-function createSessionClient(session, authOverrides = {}, callbackEvent = null) {
+function createSessionClient(session, authOverrides = {}, callbackEvent = null, databaseCalls = []) {
   let authListener = null;
   const auth = {
     getSession: async () => {
@@ -117,7 +129,7 @@ function createSessionClient(session, authOverrides = {}, callbackEvent = null) 
         select: () => chain,
         eq: () => chain,
         single: () => Promise.resolve(result),
-        update: () => chain,
+        update: (payload) => { databaseCalls.push({ table, payload }); return chain; },
         upsert: async () => ({ error: null }),
         then: (resolve, reject) => Promise.resolve(result).then(resolve, reject)
       };
@@ -181,9 +193,144 @@ test('auth action failures reject instead of appearing successful', async () => 
   });
 });
 
+test('Google sign-in uses the Google provider and dashboard redirect', async () => {
+  const calls = [];
+  await withAuthApi({
+    signInWithOAuth: async (...args) => { calls.push(args); return { error: null }; }
+  }, async ({ signInWithGoogle }) => {
+    await signInWithGoogle();
+  });
+  assert.deepEqual(calls, [[{
+    provider: 'google',
+    options: { redirectTo: 'http://localhost/pages/dashboard.html' }
+  }]]);
+});
+
+test('Google sign-in errors reject instead of appearing successful', async () => {
+  await withAuthApi({
+    signInWithOAuth: async () => ({ error: { message: 'Google provider unavailable' } })
+  }, async ({ signInWithGoogle }) => {
+    await assert.rejects(signInWithGoogle(), /Google provider unavailable/);
+  });
+});
+
 test('login links to the password-recovery request page', async () => {
   const page = await openPage('pages/login.html');
   assert.equal(page.$('[data-forgot-password]')?.getAttribute('href'), 'forgot-password.html');
+  page.done();
+});
+
+test('login gives an email example and toggles password visibility', async () => {
+  const page = await openPage('pages/login.html');
+  const email = page.$('[name="email"]');
+  const password = page.$('#password');
+  const toggle = page.$('[data-password-toggle]');
+
+  assert.equal(email.getAttribute('placeholder'), 'example@gmail.com');
+  assert.equal(password.type, 'password');
+  assert.equal(toggle.textContent.trim(), 'Show');
+  assert.equal(toggle.getAttribute('aria-label'), 'Show password');
+  page.click('[data-password-toggle]');
+  assert.equal(password.type, 'text');
+  assert.equal(toggle.getAttribute('aria-label'), 'Hide password');
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  page.click('[data-password-toggle]');
+  assert.equal(password.type, 'password');
+  assert.equal(toggle.getAttribute('aria-label'), 'Show password');
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  page.done();
+});
+
+test('login removes redundant options while keeping its main actions', async () => {
+  const page = await openPage('pages/login.html', {
+    supabase: { createClient: () => createSessionClient(null) }
+  });
+  assert.equal(page.$('[data-resend]'), null);
+  assert.equal(page.$('details[data-auth-options]'), null, 'redundant sign-in options disclosure is removed');
+  assert.equal(page.$('[data-magic-link]'), null, 'email-link option is removed');
+  assert.ok(page.$('[data-google-sign-in]'), 'Google sign-in remains available');
+  assert.ok(page.$('.auth-password-heading [data-forgot-password]'), 'recovery link shares the password row');
+  assert.ok(page.$('.auth-signup-prompt [data-switch]'), 'signup stays available');
+  assert.ok(page.$('a[data-guest-link]'), 'guest access remains a link');
+  page.done();
+});
+
+test('login only offers resend for unconfirmed-email errors', async () => {
+  const errors = [
+    { code: 'email_not_confirmed', message: 'Email not confirmed' },
+    { code: 'invalid_credentials', message: 'Invalid login credentials' }
+  ];
+  let attemptNumber = 0;
+  const client = createSessionClient(null, {
+    signInWithPassword: async () => ({ data: null, error: errors[attemptNumber++] })
+  });
+  const page = await openPage('pages/login.html', { supabase: { createClient: () => client } });
+  const submit = async () => {
+    page.$('[name="email"]').value = 'student@example.com';
+    page.$('[name="password"]').value = 'valid-password';
+    page.$('#auth-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+    await page.until(() => page.$('#auth-form')?.getAttribute('aria-busy') !== 'true', 'sign-in request');
+  };
+
+  await submit();
+  assert.ok(page.$('[data-resend]'), 'unconfirmed email exposes resend');
+  await submit();
+  assert.equal(page.$('[data-resend]'), null, 'invalid credentials do not expose resend');
+  page.done();
+});
+
+test('signup confirmation and duplicate states retain the resend action', async () => {
+  const responses = [
+    { data: { user: { identities: [{}] }, session: null }, error: null },
+    { data: { user: { identities: [] }, session: null }, error: null }
+  ];
+  let signUpNumber = 0;
+  const signUpCalls = [];
+  const client = createSessionClient(null, {
+    signUp: async (payload) => {
+      signUpCalls.push(payload);
+      return responses[signUpNumber++];
+    }
+  });
+  const page = await openPage('pages/login.html', { supabase: { createClient: () => client } });
+  const submitSignup = async () => {
+    page.$('[name="nickname"]').value = 'Learner';
+    page.$('[name="email"]').value = 'student@example.com';
+    page.$('[name="password"]').value = 'valid-password';
+    page.$('#auth-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+    await page.until(() => page.$('#auth-form')?.getAttribute('aria-busy') !== 'true', 'signup request');
+    assert.ok(page.$('[data-resend]'), `confirmation resend action; calls: ${signUpCalls.length}; page: ${page.text()}`);
+  };
+
+  page.click('[data-switch]');
+  await submitSignup();
+  page.click('[data-switch]');
+  assert.equal(page.$('[data-resend]'), null, 'resend is hidden again while editing signup');
+  await submitSignup();
+  assert.match(page.text(), /This email is already registered/);
+  page.done();
+});
+
+test('login/signup page offers Google without removing email authentication', async () => {
+  const client = createSessionClient(null, { signInWithOAuth: async () => ({ error: null }) });
+  const page = await openPage('pages/login.html', { supabase: { createClient: () => client } });
+  assert.ok(page.$('[data-google-sign-in]'));
+  assert.ok(page.$('#auth-form'));
+  assert.ok(page.$('[name="email"]'));
+  page.click('[data-switch]');
+  assert.ok(page.$('[data-google-sign-in]'), 'Google sign-in remains available in signup mode');
+  assert.ok(page.$('[name="nickname"]'));
+  page.done();
+});
+
+test('login page displays Google OAuth errors', async () => {
+  const client = createSessionClient(null, {
+    signInWithOAuth: async () => ({ error: { message: 'Google sign-in unavailable' } })
+  });
+  const page = await openPage('pages/login.html', { supabase: { createClient: () => client } });
+  page.click('[data-google-sign-in]');
+  await page.until(() => Boolean(page.$('[role="alert"]')), 'Google sign-in error');
+  assert.match(page.$('[role="alert"]').textContent, /Google sign-in unavailable/);
   page.done();
 });
 
@@ -388,9 +535,29 @@ test('invitation page requires a session and confirmed matching passwords', asyn
   page.done();
 });
 
-test('login links to the magic-link sign-in page', async () => {
-  const page = await openPage('pages/login.html');
-  assert.equal(page.$('[data-magic-link]')?.getAttribute('href'), 'magic-link.html');
+test('magic-link page offers Google while preserving email-link and OTP forms', async () => {
+  const client = createSessionClient(null, {
+    signInWithOAuth: async () => ({ error: null }),
+    signInWithOtp: async () => ({ error: null })
+  });
+  const page = await openPage('pages/magic-link.html', { supabase: { createClient: () => client } });
+  assert.ok(page.$('[data-google-sign-in]'));
+  assert.ok(page.$('#magic-link-form'));
+  page.$('[name="email"]').value = 'student@example.com';
+  page.$('#magic-link-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+  await page.until(() => Boolean(page.$('#otp-form')), 'email OTP form');
+  assert.ok(page.$('[data-google-sign-in]'), 'Google sign-in remains available in OTP mode');
+  page.done();
+});
+
+test('magic-link page displays Google OAuth errors', async () => {
+  const client = createSessionClient(null, {
+    signInWithOAuth: async () => ({ error: { message: 'Google sign-in unavailable' } })
+  });
+  const page = await openPage('pages/magic-link.html', { supabase: { createClient: () => client } });
+  page.click('[data-google-sign-in]');
+  await page.until(() => Boolean(page.$('[role="alert"]')), 'Google sign-in error');
+  assert.match(page.$('[role="alert"]').textContent, /Google sign-in unavailable/);
   page.done();
 });
 
@@ -475,6 +642,24 @@ test('magic-link callback errors show an expired-link message', async () => {
 
 const savedAuthToken = { [`sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`]: { access_token: 'test-token' } };
 
+test('profile: compact identity header precedes preferences', async () => {
+  const page = await openPage('pages/profile.html');
+  const profile = page.$('.profile-page');
+  assert.ok(profile, 'Profile uses its scoped page layout');
+  const layout = profile.querySelector('.profile-layout');
+  const summary = layout.querySelector('.profile-summary');
+  const form = layout.querySelector('[data-profile-form]');
+  assert.equal(layout.firstElementChild, summary, 'the compact identity header leads the settings form');
+  assert.equal(layout.children[1], form, 'the settings form follows the identity header');
+  assert.ok(summary.querySelector('.profile-avatar'), 'the summary keeps the learner avatar');
+  assert.ok(summary.querySelector('.tag'), 'the summary keeps the guest or sync status');
+  assert.equal(summary.querySelector('.profile-summary-details'), null, 'the summary omits details duplicated in the form');
+  assert.ok(form.querySelector('#profile-program'), 'program remains editable in the form');
+  assert.ok(form.querySelector('#profile-year-level'), 'year level remains editable in the form');
+  assert.equal(profile.lastElementChild, profile.querySelector('.profile-account'), 'account and privacy follows the preferences');
+  page.done();
+});
+
 test('signed-in profile exposes account security links while guest profile does not', async () => {
   const guest = await openPage('pages/profile.html');
   assert.equal(guest.$('[data-change-email]'), null);
@@ -488,6 +673,52 @@ test('signed-in profile exposes account security links while guest profile does 
   });
   assert.equal(page.$('[data-change-email]')?.getAttribute('href'), '../pages/change-email.html');
   assert.equal(page.$('[data-reauthenticate]')?.getAttribute('href'), '../pages/reauthenticate.html');
+  page.done();
+});
+
+test('profile: guest with legacy state gets local preference defaults', async () => {
+  const page = await openPage('pages/profile.html', {
+    seed: { 'dfh:learner-state': { nickname: 'Legacy learner', xp: 25, completedLessons: [] } }
+  });
+  const { getState } = await import('../js/core/state.js');
+  const state = await getState();
+  assert.deepEqual(state.profilePreferences, {
+    program: '',
+    yearLevel: '',
+    weeklyGoal: 3,
+    sessionLength: 25,
+    preferredTime: 'flexible',
+    lessonStyle: 'worked-examples',
+    studyReminders: false,
+    assessmentUpdates: false,
+    reduceMotion: false
+  });
+  page.done();
+});
+
+test('profile: signed-in preferences save locally without syncing', async () => {
+  const session = { user: { id: 'user-profile-preferences', email: 'student@example.com' } };
+  const databaseCalls = [];
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
+  });
+  const { getState, saveState } = await import('../js/core/state.js');
+  const state = await getState();
+  const profilePreferences = {
+    program: 'BS Computer Science',
+    yearLevel: '2nd year',
+    weeklyGoal: 4,
+    sessionLength: 40,
+    preferredTime: 'evening',
+    lessonStyle: 'practice-first',
+    studyReminders: true,
+    assessmentUpdates: false,
+    reduceMotion: true
+  };
+  await saveState({ ...state, nickname: 'Kian Reyes', profilePreferences });
+  assert.deepEqual(page.storage('dfh:profile-preferences'), profilePreferences);
+  assert.deepEqual(databaseCalls, [{ table: 'profiles', payload: { nickname: 'Kian Reyes' } }]);
   page.done();
 });
 
@@ -583,7 +814,7 @@ test('reauthentication requires sign-in, validates OTP, and reports verification
 });
 
 for (const [file, heading] of [
-  ['index.html', 'Build the reasoning'],
+  ['index.html', 'Understand the logic'],
   ['pages/dashboard.html', 'Welcome back'],
   ['pages/courses.html', 'Learn one idea at a time'],
   ['pages/lessons.html', 'Propositions and connectives'],
@@ -602,10 +833,154 @@ for (const [file, heading] of [
   });
 }
 
+test('home: guest homepage keeps the main learning actions', async () => {
+  const html = renderHomePage(null, { completedLessons: [], xp: 0 }, 'light');
+  const dom = new JSDOM(html);
+  const { document } = dom.window;
+  assert.match(document.querySelector('h1')?.textContent || '', /Understand the logic behind every algorithm/);
+  assert.equal([...document.querySelectorAll('a')].find((link) => link.textContent.includes('Start learning'))?.getAttribute('href'), 'pages/dashboard.html');
+  assert.equal([...document.querySelectorAll('a')].find((link) => link.textContent.includes('Browse topics'))?.getAttribute('href'), '#topics');
+  assert.equal(document.querySelector('.header-cta')?.getAttribute('href'), 'pages/login.html');
+  assert.ok(document.querySelector('[data-theme-toggle]'));
+  dom.window.close();
+});
+
+test('home: progress-aware hero keeps account and guest states', async () => {
+  const signedIn = renderHomePage(
+    { email: 'student@example.edu' },
+    { completedLessons: [], xp: 0 },
+    'light'
+  );
+  assert.match(signedIn, /Your learning is synced/);
+  assert.match(signedIn, /Your study space is ready when you are/);
+  assert.match(signedIn, /href="pages\/dashboard\.html">Continue learning/);
+
+  const returningGuest = renderHomePage(
+    null,
+    { completedLessons: ['logic-propositions'], xp: 50 },
+    'light'
+  );
+  assert.match(returningGuest, /Continue as a guest/);
+  assert.match(returningGuest, /1 lesson completed · 50 XP/);
+  assert.match(returningGuest, /href="pages\/dashboard\.html">Continue learning/);
+});
+
+test('home: theme toggle label reflects the active theme', async () => {
+  const state = { completedLessons: [], xp: 0 };
+  assert.match(renderHomePage(null, state, 'light'), /aria-label="Switch to dark theme"/);
+  assert.match(renderHomePage(null, state, 'dark'), /aria-label="Switch to light theme"/);
+});
+
+test('home: topic previews render the complete topic data', async () => {
+  const topics = JSON.parse(await readFile(resolve(root, 'data/topics.json'), 'utf8'));
+  const page = await openPage('index.html');
+  await page.until(
+    () => page.$$('#topic-preview .topic-preview').length === topics.length,
+    'all home topic previews'
+  );
+  for (const topic of topics) {
+    const card = page.$$('#topic-preview .topic-preview')
+      .find((item) => item.querySelector('h3')?.textContent === topic.title);
+    assert.ok(card, `missing topic preview: ${topic.title}`);
+    assert.equal(card.querySelector('.scope-label')?.textContent, topic.scopeLabel);
+    assert.equal(card.querySelector('p')?.textContent, topic.summary);
+  }
+  page.done();
+});
+
 test('guests never load the Supabase client', async () => {
   const page = await openPage('pages/courses.html', { supabase: null });
   assert.equal(page.window.supabase, undefined);
   assert.equal(page.$$('script[src*="supabase"]').length, 0);
+  page.done();
+});
+
+test('courses: catalogue lists available lessons before non-actionable upcoming topics', async () => {
+  const page = await openPage('pages/courses.html');
+  const available = page.$('.courses-available');
+  const upcoming = page.$('.courses-upcoming');
+  assert.ok(available, 'published courses have a dedicated catalogue section');
+  assert.ok(upcoming, 'topics in preparation have a separate section');
+  assert.ok(
+    available.compareDocumentPosition(upcoming) & page.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'available courses appear before upcoming topics'
+  );
+  assert.equal(page.$('[data-course-count="available"]').textContent.trim(), '1');
+  assert.equal(page.$('[data-course-count="upcoming"]').textContent.trim(), '8');
+  assert.match(available.textContent, /Logic/);
+  for (const lessonId of ['logic-propositions', 'logic-truth-tables', 'logic-predicates']) {
+    assert.ok(available.querySelector(`a[href*="${lessonId}"]`), `${lessonId} is linked from the available course`);
+  }
+  assert.equal(upcoming.querySelectorAll('.course-card-unavailable').length, 8);
+  assert.equal(upcoming.querySelector('a, button'), null, 'upcoming topics are informational, not actionable');
+  page.done();
+});
+
+test('courses: Logic progress and continue action reflect completed lessons', async () => {
+  const page = await openPage('pages/courses.html', {
+    seed: {
+      'dfh:learner-state': {
+        completedLessons: ['logic-propositions'],
+        xp: 50,
+        level: 1
+      }
+    }
+  });
+  const available = page.$('.courses-available');
+  assert.ok(available, 'Logic is in the available courses section');
+  assert.equal(available.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '1');
+  assert.ok(
+    available.querySelector('a[href*="logic-truth-tables"]'),
+    'the course action continues with the first incomplete lesson'
+  );
+  page.done();
+});
+
+test('progress: course-first layout keeps topic availability secondary', async () => {
+  const page = await openPage('pages/progress.html', {
+    seed: {
+      'dfh:learner-state': {
+        completedLessons: ['logic-propositions'],
+        xp: 50,
+        level: 1,
+        streak: 2
+      }
+    }
+  });
+  const progress = page.$('.progress-page');
+  assert.ok(progress, 'Progress uses its course-first layout');
+  const course = progress.querySelector('.progress-course-section');
+  assert.ok(course, 'the published Logic course leads');
+  assert.equal(course.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '1');
+  const lessons = progress.querySelector('.progress-lesson-list');
+  assert.equal(lessons.querySelectorAll('a').length, 3, 'all published Logic lessons remain linked');
+  const upcoming = progress.querySelector('.progress-upcoming-section');
+  assert.equal(upcoming.querySelectorAll('.progress-topic').length, 8, 'all eight unavailable topics remain visible');
+  assert.equal(upcoming.querySelector('a'), null, 'coming-soon topics remain non-actionable');
+  assert.equal(progress.querySelectorAll('.progress-summary-grid .progress-stat').length, 3);
+  assert.match(progress.querySelector('.progress-history').textContent, /No quiz attempts yet/);
+  page.done();
+});
+
+test('practice: lesson sets lead and mixed review follows', async () => {
+  const page = await openPage('pages/practice.html');
+  const layout = page.$('.practice-page');
+  assert.ok(layout, 'Practice content uses its dedicated layout');
+  const bank = JSON.parse(await readFile(resolve(root, 'data/quizzes/logic.json'), 'utf8'));
+  const lessonQuizzes = bank.quizzes.filter((quiz) => quiz.questions.length);
+  const actions = page.$$('.practice-grid [data-start-practice]');
+  assert.deepEqual(
+    actions.map((action) => action.dataset.startPractice),
+    [...lessonQuizzes.map((quiz) => quiz.id), 'mixed-review'],
+    'lesson practice actions follow the available bank order before mixed review'
+  );
+  for (const quiz of lessonQuizzes) {
+    assert.match(
+      page.$(`[data-start-practice="${quiz.id}"]`).closest('.practice-card').textContent,
+      new RegExp(`${quiz.questions.length} questions`)
+    );
+  }
+  assert.match(layout.textContent, /scores do not award XP or change lesson progress/);
   page.done();
 });
 
@@ -632,11 +1007,47 @@ test('practice: a single lesson set runs too', async () => {
   page.done();
 });
 
+test('quizzes: catalogue leads with lesson quizzes and keeps history below', async () => {
+  const page = await openPage('pages/quizzes.html');
+  const catalogue = page.$('.quiz-catalogue');
+  assert.ok(catalogue, 'Quiz content uses its dedicated catalogue layout');
+  const bank = JSON.parse(await readFile(resolve(root, 'data/quizzes/logic.json'), 'utf8'));
+  const actions = page.$$('.quiz-catalogue [data-start-quiz]');
+  assert.deepEqual(
+    actions.map((action) => action.dataset.startQuiz),
+    [...bank.quizzes.map((quiz) => quiz.id), 'mixed-review'],
+    'lesson quizzes follow the available bank order before mixed review'
+  );
+  for (const quiz of bank.quizzes) {
+    assert.match(
+      page.$(`[data-start-quiz="${quiz.id}"]`).closest('.quiz-card').textContent,
+      new RegExp(`${quiz.questions.length} questions`)
+    );
+  }
+  const mixedReview = page.$('[data-start-quiz="mixed-review"]');
+  const history = catalogue.querySelector('.quiz-history');
+  assert.ok(history.compareDocumentPosition(mixedReview) & 2, 'recent attempts follow mixed review');
+  assert.match(history.textContent, /No attempts yet/);
+  const unavailable = catalogue.querySelectorAll('.quiz-unavailable-card');
+  assert.equal(unavailable.length, 8);
+  for (const topic of unavailable) {
+    assert.equal(topic.querySelector('[data-start-quiz]'), null, 'unavailable topics have no quiz actions');
+  }
+  page.done();
+});
+
 test('assessment: checkpoint submits and shows a review', async () => {
   const page = await openPage('pages/assessments.html');
+  const overview = page.$('.assessment-page');
+  assert.ok(overview, 'the checkpoint overview is shown before starting');
+  assert.match(overview.textContent, /15 available questions/);
+  assert.match(overview.textContent, /untimed/i);
+  assert.match(overview.textContent, /not a course grade/i);
+  assert.equal(page.$$('.assessment-page [data-start-assessment]').length, 1);
   page.click('[data-start-assessment]');
   for (let question = 0; question < 15; question += 1) {
     page.choose('[data-learning-answer]');
+    assert.doesNotMatch(page.text(), /Correct\.|Not quite\./, 'answer feedback stays hidden during the checkpoint');
     page.click('[data-learning-next]');
   }
   assert.ok(page.$('#assessment-results-heading'), 'assessment results heading');
@@ -660,13 +1071,119 @@ test('quizzes: a quiz saves an attempt to guest history', async () => {
   page.done();
 });
 
+test('quizzes: missed question IDs stay local when signed-in history cannot save', async () => {
+  const session = { user: { id: 'quiz-activity-user', email: 'student@example.com' } };
+  const client = {
+    auth: { getSession: async () => ({ data: { session }, error: null }) },
+    from(table) {
+      let inserting = false;
+      const result = {
+        data: table === 'profiles'
+          ? { nickname: 'Learner', xp: 0, level: 1, streak: 0, last_active: null }
+          : [],
+        error: null
+      };
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        order: () => chain,
+        limit: () => chain,
+        single: () => Promise.resolve(inserting
+          ? { data: null, error: new Error('network unavailable') }
+          : result),
+        update: () => chain,
+        upsert: async () => ({ error: null }),
+        insert: () => { inserting = true; return chain; },
+        then: (resolve, reject) => Promise.resolve(result).then(resolve, reject)
+      };
+      return chain;
+    }
+  };
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  const page = await openPage('pages/quizzes.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => client }
+  });
+  try {
+    page.click('[data-start-quiz="logic-truth-tables"]');
+    for (let question = 0; question < 5; question += 1) {
+      page.choose('[data-quiz-answer][value="0"]');
+      page.click('[data-quiz-check]');
+      page.click('[data-quiz-next]');
+    }
+    await page.until(() => /could not save this attempt/i.test(page.text()), 'the failed remote save message');
+    await page.until(
+      () => page.storage('dfh:dashboard-activity:user:quiz-activity-user')?.recentEvents?.length === 1,
+      'local quiz activity'
+    );
+    const [attempt] = page.storage('dfh:dashboard-activity:user:quiz-activity-user').recentEvents;
+    assert.equal(attempt.type, 'quiz-attempt');
+    assert.equal(attempt.mode, 'logic-truth-tables');
+    assert.ok(attempt.missedQuestionIds.length > 0, 'missed question IDs are retained locally');
+    assert.ok(attempt.missedQuestionIds.every((id) => typeof id === 'string'));
+  } finally {
+    Math.random = originalRandom;
+    page.done(['Could not save quiz attempt.']);
+  }
+});
+
+test('flashcards: single-card focus keeps deck controls with the active prompt', async () => {
+  const page = await openPage('pages/flashcards.html');
+  const focus = page.$('.flashcard-focus');
+  assert.ok(focus, 'Flashcards content uses a focused study surface');
+  assert.equal(focus.querySelectorAll('.flashcard-panel').length, 1, 'one current card is shown');
+  assert.equal(focus.querySelectorAll('.flashcard-choices li').length, 4, 'the current card keeps its four choices');
+  assert.equal(focus.querySelector('[role="status"]').textContent, 'Card 1 of 15');
+  assert.equal(focus.querySelector('[data-flashcard-previous]').disabled, true, 'Previous is disabled on the first card');
+  assert.ok(focus.querySelector('[data-flashcard-reveal]'), 'the answer can be revealed');
+  assert.ok(focus.querySelector('[data-flashcard-next]'), 'the next card remains available');
+  page.done();
+});
+
 test('flashcards: reveal and move through the deck', async () => {
   const page = await openPage('pages/flashcards.html');
   assert.match(page.text(), /Card 1 of 15/);
+  const cardId = page.$('.flashcard-panel').dataset.flashcardId;
+  assert.ok(cardId, 'the flashcard panel identifies the current question');
   page.click('[data-flashcard-reveal]');
   assert.equal(page.$('[data-flashcard-answer]').hasAttribute('hidden'), false);
+  page.click('[data-flashcard-reveal]');
+  page.click('[data-flashcard-reveal]');
+  await page.until(
+    () => page.storage('dfh:dashboard-activity:guest')?.today?.flashcardIds.length === 1,
+    'flashcard reveal activity'
+  );
+  await page.until(
+    () => page.storage('dfh:dashboard-activity:guest')?.recentEvents?.filter((event) => event.type === 'flashcard-revealed').length === 2,
+    'both flashcard reveal events'
+  );
+  const flashcardActivity = page.storage('dfh:dashboard-activity:guest');
+  assert.deepEqual(flashcardActivity.today.flashcardIds, [cardId], 'revealing a card repeatedly counts once toward the daily goal');
   page.click('[data-flashcard-next]');
   assert.match(page.text(), /Card 2 of 15/);
+  page.done();
+});
+
+test('lesson: focused reader keeps pathway and section outline in the reading flow', async () => {
+  const page = await openPage('pages/lessons.html', { search: '?lesson=logic-truth-tables' });
+  const reader = page.$('.lesson-reader-layout');
+  assert.ok(reader, 'lesson content uses the focused reading layout');
+  const pathway = reader.querySelector('.lesson-pathway');
+  assert.equal(pathway.querySelectorAll('a').length, 3, 'all Logic lessons remain available in the pathway');
+  for (const lessonId of ['logic-propositions', 'logic-truth-tables', 'logic-predicates']) {
+    assert.ok(pathway.querySelector(`a[href*="${lessonId}"]`), `${lessonId} remains linked from the pathway`);
+  }
+  assert.ok(
+    pathway.querySelector('a[aria-current="page"][href*="logic-truth-tables"]'),
+    'the selected lesson is identified as the current page'
+  );
+  assert.ok(reader.querySelector('.lesson-outline a[href="#lesson-section-1"]'), 'the outline links to lesson sections');
+  assert.ok(reader.querySelector('[data-complete]'), 'lesson completion remains available');
+  assert.equal(reader.querySelector('.lesson-rail-rich'), null, 'the reader no longer has a separate lesson rail');
+  assert.equal(reader.querySelector('.answer').hidden, true, 'the self-check explanation starts hidden');
+  page.click('[data-reveal]');
+  assert.equal(reader.querySelector('.answer').hidden, false, 'the self-check explanation can be revealed');
   page.done();
 });
 
@@ -675,6 +1192,11 @@ test('lesson: completing a lesson awards XP once', async () => {
   page.click('[data-complete]');
   await page.until(() => page.storage('dfh:learner-state')?.xp === 50, 'XP to be saved');
   assert.deepEqual(page.storage('dfh:learner-state').completedLessons, ['logic-truth-tables']);
+  await page.until(
+    () => page.storage('dfh:dashboard-activity:guest')?.today.lessonIds.length === 1,
+    'lesson completion activity'
+  );
+  assert.equal(page.storage('dfh:dashboard-activity:guest').recentEvents[0].id, 'logic-truth-tables');
   assert.match(page.$('[data-complete]').textContent, /Completed/);
   page.done();
 });
@@ -702,8 +1224,146 @@ test('profile: saving a nickname updates the page', async () => {
   const page = await openPage('pages/profile.html');
   const input = page.$('#profile-nickname'); input.value = 'Kian Reyes';
   page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
-  await page.until(() => /Nickname saved/.test(page.text()), 'the nickname to save');
+  await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
   assert.equal(page.storage('dfh:learner-state').nickname, 'Kian Reyes');
+  page.done();
+});
+
+test('profile: saves preferences and applies appearance settings', async () => {
+  const page = await openPage('pages/profile.html');
+  const form = page.$('[data-profile-form]');
+  form.elements.nickname.value = 'Kian Reyes';
+  form.elements.program.value = 'BS Information Technology';
+  form.elements.yearLevel.value = '2nd year';
+  form.elements.weeklyGoal.value = '4';
+  form.elements.sessionLength.value = '40';
+  form.elements.preferredTime.value = 'evening';
+  form.elements.lessonStyle.value = 'practice-first';
+  form.elements.studyReminders.checked = true;
+  form.elements.assessmentUpdates.checked = true;
+  form.elements.theme.value = 'dark';
+  form.elements.reduceMotion.checked = true;
+  form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+  await page.until(() => /Profile settings saved/.test(page.text()), 'profile settings to save');
+
+  assert.deepEqual(page.storage('dfh:profile-preferences'), {
+    program: 'BS Information Technology',
+    yearLevel: '2nd year',
+    weeklyGoal: 4,
+    sessionLength: 40,
+    preferredTime: 'evening',
+    lessonStyle: 'practice-first',
+    studyReminders: true,
+    assessmentUpdates: true,
+    reduceMotion: true
+  });
+  assert.equal(page.storage('dfh:learner-state').nickname, 'Kian Reyes');
+  assert.equal(page.storage('dfh:learner-state').theme, 'dark');
+  assert.equal('profilePreferences' in page.storage('dfh:learner-state'), false);
+  assert.equal(page.$('.profile-summary h2').textContent, 'Kian Reyes');
+  assert.equal(page.$('.profile-avatar').textContent, 'K');
+  assert.equal(form.elements.program.value, 'BS Information Technology');
+  assert.equal(form.elements.yearLevel.value, '2nd year');
+  assert.equal(page.window.document.documentElement.dataset.theme, 'dark');
+  assert.equal(page.window.document.documentElement.dataset.reduceMotion, 'true');
+  page.done();
+});
+
+test('profile: invalid nickname prevents all profile changes', async () => {
+  const page = await openPage('pages/profile.html');
+  const initialState = page.storage('dfh:learner-state');
+  const initialPreferences = page.storage('dfh:profile-preferences');
+  const form = page.$('[data-profile-form]');
+  form.elements.nickname.value = 'x';
+  form.elements.theme.value = 'dark';
+  form.elements.reduceMotion.checked = true;
+  form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+
+  assert.equal(page.$('#profile-nickname').getAttribute('aria-invalid'), 'true');
+  assert.match(page.$('#profile-nickname-error').textContent, /3–32/);
+  assert.deepEqual(page.storage('dfh:learner-state'), initialState);
+  assert.deepEqual(page.storage('dfh:profile-preferences'), initialPreferences);
+  assert.equal(page.window.document.documentElement.dataset.theme, 'light');
+  assert.notEqual(page.window.document.documentElement.dataset.reduceMotion, 'true');
+  page.done();
+});
+
+test('profile: applies saved reduced motion on initialization', async () => {
+  const page = await openPage('pages/profile.html', {
+    seed: { 'dfh:profile-preferences': { reduceMotion: true } }
+  });
+  assert.equal(page.window.document.documentElement.dataset.reduceMotion, 'true');
+  page.done();
+});
+
+test('dashboard: compact study-first layout keeps the primary path before supporting panels', async () => {
+  const page = await openPage('pages/dashboard.html');
+  const selectors = [
+    '.dashboard-welcome',
+    '.dashboard-next-step',
+    '.dashboard-overview',
+    '.dashboard-pathway',
+    '.dashboard-study-tools',
+    '.dashboard-supporting'
+  ];
+  const sections = selectors.map((selector) => page.$(selector));
+  assert.ok(sections.every(Boolean), 'all study-first Dashboard sections are present');
+  for (let index = 1; index < sections.length; index += 1) {
+    assert.ok(
+      sections[index - 1].compareDocumentPosition(sections[index]) & page.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      `${selectors[index - 1]} appears before ${selectors[index]}`
+    );
+  }
+  assert.match(page.text(), /Your first lesson is ready/);
+  assert.ok(page.$('.dashboard-supporting [data-dashboard-goal]'), 'daily goal remains available in supporting content');
+  page.done();
+});
+
+test('dashboard: full course map stays after the study-first sections', async () => {
+  const page = await openPage('pages/dashboard.html');
+  const courseMap = page.$('.dashboard-course-map');
+  const supporting = page.$('.dashboard-supporting');
+  assert.ok(courseMap, 'all course topics remain available on the Dashboard');
+  assert.ok(
+    supporting.compareDocumentPosition(courseMap) & page.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'the course map follows the primary path and supporting details'
+  );
+  assert.equal(courseMap.querySelectorAll('.mini-topic').length, 9);
+  assert.match(courseMap.textContent, /Logic/);
+  assert.match(courseMap.textContent, /Coming soon/);
+  page.done();
+});
+
+test('dashboard: completed Logic pathway keeps its review action', async () => {
+  const page = await openPage('pages/dashboard.html', {
+    seed: {
+      'dfh:learner-state': {
+        completedLessons: ['logic-propositions', 'logic-truth-tables', 'logic-predicates'],
+        xp: 150,
+        level: 2
+      }
+    }
+  });
+  const nextStep = page.$('.dashboard-next-step');
+  assert.ok(nextStep, 'the completed pathway is in the next-step section');
+  assert.match(nextStep.textContent, /All Logic lessons complete/);
+  assert.match(nextStep.querySelector('a').getAttribute('href'), /quizzes/);
+  page.done();
+});
+
+test('dashboard: daily goal selection persists locally', async () => {
+  const page = await openPage('pages/dashboard.html');
+  const goal = page.$('[data-dashboard-goal]');
+  assert.ok(goal, 'daily goal has a selectable control');
+  assert.match(page.text(), /0 of 1 lesson/);
+  goal.value = 'flashcards';
+  goal.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+  await page.until(
+    () => page.storage('dfh:dashboard-activity:guest')?.goal === 'flashcards',
+    'daily goal to persist'
+  );
+  assert.match(page.text(), /0 of 10 cards/);
+  assert.match(page.text(), /No current announcements or deadlines/);
   page.done();
 });
 
