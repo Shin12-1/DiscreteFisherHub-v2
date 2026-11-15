@@ -240,6 +240,147 @@ export function evaluateGuestAchievements({
   return awards;
 }
 
+export function getAchievementProgress({
+  catalog,
+  events = [],
+  completions = [],
+  studySessions = [],
+  weeklyChallenge = null
+} = {}) {
+  validateAchievementCatalog(catalog);
+  const facts = { events, completions, studySessions };
+  validateFacts(facts);
+  const visitedPages = new Set(events
+    .filter(({ type }) => type === 'page-visited')
+    .map(({ data }) => data.page));
+  const logicLessons = new Set(completions
+    .filter(({ type }) => type === 'lesson')
+    .map(({ activityId }) => activityId)
+    .filter((id) => LOGIC_LESSONS.includes(id)));
+  const practiceAnswers = events.filter(({ type }) => type === 'practice-question-answered');
+  const deMorganCorrect = practiceAnswers.filter(({ data }) =>
+    data.correct === true && Array.isArray(data.tags) && data.tags.includes('de-morgan'));
+  const recentQuizzes = completions
+    .filter(({ type, total }) => type === 'quiz' && total > 0)
+    .slice()
+    .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt));
+  const reviewedBySession = new Map();
+  for (const { type, data } of events) {
+    if (type !== 'flashcard-reviewed' || !data.sessionId || !data.cardId) continue;
+    const key = `${data.deckId || ''}:${data.sessionId}`;
+    const cards = reviewedBySession.get(key) || new Set();
+    cards.add(data.cardId);
+    reviewedBySession.set(key, cards);
+  }
+  const weeklyEvents = weeklyChallenge
+    ? events.filter(({ occurredAt }) => isInWeek(occurredAt, weeklyChallenge))
+    : [];
+  const weeklyCompletions = weeklyChallenge
+    ? completions.filter(({ completedAt }) => isInWeek(completedAt, weeklyChallenge))
+    : [];
+  let weeklyCurrent = 0;
+  if (weeklyChallenge?.ruleKey === 'lesson-completions') {
+    weeklyCurrent = weeklyCompletions.filter(({ type }) => type === 'lesson').length;
+  } else if (weeklyChallenge?.ruleKey === 'quiz-completions') {
+    weeklyCurrent = weeklyCompletions.filter(({ type }) => type === 'quiz').length;
+  } else if (weeklyChallenge?.ruleKey === 'practice-answers') {
+    weeklyCurrent = weeklyEvents.filter(({ type }) => type === 'practice-question-answered').length;
+  } else if (weeklyChallenge?.ruleKey === 'flashcards-reviewed') {
+    weeklyCurrent = uniqueFlashcards(weeklyEvents).size;
+  }
+
+  const progress = {};
+  for (const achievement of catalog.achievements) {
+    const criteria = achievement.criteria;
+    let current = 0;
+    let target = 1;
+    switch (criteria.ruleKey) {
+      case 'event-count':
+        current = events.filter(({ type }) => type === criteria.event).length;
+        target = criteria.target;
+        break;
+      case 'all-sidebar-pages':
+        current = criteria.pages.filter((page) => visitedPages.has(page)).length;
+        target = criteria.pages.length;
+        break;
+      case 'lesson-completed':
+        current = completions.some(({ type, activityId }) =>
+          type === 'lesson' && activityId === criteria.lessonId) ? 1 : 0;
+        break;
+      case 'topic-completed':
+        current = criteria.topicId === 'logic' ? logicLessons.size : 0;
+        target = LOGIC_LESSONS.length;
+        break;
+      case 'streak-days':
+        current = longestStreak(studySessions);
+        target = criteria.days;
+        break;
+      case 'perfect-quiz-score':
+        current = completions.some(({ type, score, total }) =>
+          type === 'quiz' && score === criteria.score && total === criteria.total) ? 1 : 0;
+        break;
+      case 'quiz-score-improved':
+        current = hasImprovedScore(completions, 'quiz') ? 1 : 0;
+        break;
+      case 'consecutive-quiz-threshold':
+        target = criteria.attempts;
+        for (const attempt of recentQuizzes.slice(0, target)) {
+          if (attempt.score / attempt.total * 100 < criteria.minPercent) break;
+          current += 1;
+        }
+        break;
+      case 'practice-answers':
+        current = practiceAnswers.length;
+        target = criteria.count;
+        break;
+      case 'deck-reviewed':
+        current = Math.max(0, ...[...reviewedBySession.values()].map((cards) => cards.size));
+        target = CARD_DECK_SIZE;
+        break;
+      case 'cards-reviewed':
+        current = uniqueFlashcards(events).size;
+        target = criteria.count;
+        break;
+      case 'checkpoint-completed':
+        current = completions.some(({ type }) => type === 'checkpoint') ? 1 : 0;
+        break;
+      case 'checkpoint-score-improved':
+        current = hasImprovedScore(completions, 'checkpoint') ? 1 : 0;
+        break;
+      case 'study-local-hour':
+        current = studySessions.some(({ startedAt, durationSeconds }) => {
+          if (durationSeconds <= 0) return false;
+          const hour = Number(MANILA_HOUR_FORMATTER.format(asDate(startedAt, 'Study session start time')));
+          return hour >= criteria.startHour && hour < criteria.endHourExclusive;
+        }) ? 1 : 0;
+        break;
+      case 'de-morgan-correct':
+        current = deMorganCorrect.length;
+        target = criteria.count;
+        break;
+      case 'glossary-opens':
+        current = events.filter(({ type }) => type === 'glossary-opened').length;
+        target = criteria.count;
+        break;
+      case 'perfect-every-published-quiz':
+        current = new Set(completions
+          .filter(({ type, score, total, activityId }) =>
+            type === 'quiz' && score === total && total > 0 && LOGIC_LESSONS.includes(activityId))
+          .map(({ activityId }) => activityId)).size;
+        target = LOGIC_LESSONS.length;
+        break;
+      case 'weekly-challenge':
+        current = weeklyCurrent;
+        target = weeklyChallenge?.target || 1;
+        break;
+      default:
+        throw new TypeError(`Achievement ${achievement.id} uses an unsupported rule.`);
+    }
+    progress[achievement.id] = { current: Math.min(current, target), target };
+  }
+  return progress;
+}
+
 export async function evaluateAndSaveGuestAchievements({
   localAdapter,
   catalog,

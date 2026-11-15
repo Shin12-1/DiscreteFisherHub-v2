@@ -1,8 +1,8 @@
 import { icon } from './icons.js';
 import { pageUrl } from '../core/router.js';
-const items = [['dashboard','Dashboard'],['courses','Courses'],['lessons','Lessons'],['flashcards','Flashcards'],['practice','Practice'],['quizzes','Quizzes'],['assessments','Assessments'],['progress','Progress'],['profile','Profile']];
+const items = [['dashboard','Dashboard'],['courses','Courses'],['lessons','Lessons'],['flashcards','Flashcards'],['practice','Practice'],['quizzes','Quizzes'],['assessments','Assessments'],['progress','Progress'],['achievements','Achievements'],['profile','Profile']];
 const primaryMobileItems = ['dashboard','courses','lessons','practice'];
-const moreMobileItems = ['quizzes','assessments','flashcards','progress','profile'];
+const moreMobileItems = ['quizzes','assessments','flashcards','progress','achievements','profile'];
 
 export function shell(page, content, theme, unreadCount = 0) {
   const nav = items.map(([id,label]) => `<li><a class="nav-link" href="${pageUrl(id)}" ${page === id ? 'aria-current="page"' : ''}>${icon(id)}<span>${label}</span></a></li>`).join('');

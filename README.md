@@ -2,7 +2,7 @@
 
 A Discrete Mathematics study space for Fisher Valley College BSCS and BSIT students: lessons with
 worked examples and interactive explorers, flashcards, practice, quizzes, checkpoints, progress,
-streaks and a leaderboard.
+streaks, achievements, learner profiles and an opt-in leaderboard.
 
 > Student project. Not an official FVC syllabus or product.
 
@@ -25,7 +25,7 @@ npm run check      # lint + every test
 | Command | What it does |
 | --- | --- |
 | `npm run lint` | ESLint over every script. Catches undefined names like a missing import. |
-| `npm test` | Data validation, helper tests, and `scripts/test-app-smoke.mjs`, which loads every real page in a DOM and clicks through lessons, practice, assessments, quizzes, flashcards and the profile. |
+| `npm test` | Data validation, achievement/profile/share tests, and `scripts/test-app-smoke.mjs`, which loads every real page in a DOM and clicks through the main learning flows. |
 
 GitHub Actions runs the same two commands on every push and pull request.
 
@@ -37,6 +37,10 @@ GitHub Actions runs the same two commands on every push and pull request.
 - `js/core/auth.js` loads the 220 KB Supabase client only when needed (a saved session, a confirmation link, signing in, or the leaderboard), so guest pages stay light.
 - Lesson content is JSON in `data/` (see `data/schema.md`); learner data is in Supabase with row-level security (`supabase/schema.sql`).
 - Design tokens (colors, spacing, radius) are CSS variables in `css/tokens.css`; use them instead of raw colors.
+
+## Profiles and sharing
+
+Profiles and each profile section default to private. Nickname search and leaderboard participation are separate opt-ins. QR codes and downloadable SVG share cards are generated in the browser; no Vercel function or external QR service is used. See [`supabase/README.md`](supabase/README.md) for migration order and privacy verification.
 
 ## Adding content
 

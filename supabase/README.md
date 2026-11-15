@@ -37,8 +37,17 @@ The database stores the auth email in Supabase plus nickname and learning progre
 
 ## Optional migrations
 
-`supabase/migrations/` holds changes to run in order on an existing database. Read each file's comment first and run it once. A fresh install uses the full schema in `schema.sql`; do not run the optional migrations afterward.
+`supabase/schema.sql` is the complete fresh-install schema. It is not idempotent: run it once on an empty project and do not apply the optional migrations afterward.
 
-The profile/achievement migration adds the profile privacy settings, protected study records, achievement catalog and awards, notifications, reports, blocks, and privacy-filtered projections. It does not update the deployed project. To run its SQL access tests locally, start a local Supabase stack and run `npx supabase test db supabase/tests/profile_achievements_phase1.sql`. These tests use pgTAP; they never target the hosted project unless `--remote` is explicitly supplied.
+For an existing database, apply the profile migrations once, in timestamp order:
 
-For a manual two-account smoke check, set one profile to **public**, one to **members**, then verify a signed-out browser sees only the public profile and a signed-in Hub account sees both. Confirm hidden sections are absent, reports and blocks stay private, and neither profile appears on the leaderboard until that learner opts in. Then opt in one account and verify the leaderboard shows only its nickname and XP.
+1. `migrations/20261115060224_profile_achievements_phase1.sql` adds the privacy settings, stable profile handles, study records, achievement catalog/awards, notifications, blocks/reports, and privacy-filtered reads.
+2. `migrations/20261115071800_profile_visibility_actions.sql` adds badge pinning, the profile action functions, and the report-reason constraint update.
+
+Existing and new profiles default to private, all six profile sections default to private, and search discovery and leaderboard participation default to off. Learners must opt in explicitly. The migrations are files only; this repository change does not apply them to the hosted project.
+
+Run `npm run check` for the local frontend checks. With Docker and a local Supabase stack available, run `npx supabase test db supabase/tests/profile_achievements_phase1.sql` for the pgTAP database checks. Do not use `--remote` for these tests.
+
+For a manual two-account privacy check, keep one profile private, set one to **public**, and set one to **members**. Verify signed-out visitors can open only the public profile and a signed-in Hub learner can open the members-only profile. Hide a section and confirm it is absent to viewers; make a profile private again and confirm its shared URL is unavailable and owner sharing is disabled. Scan a QR to confirm it contains only the stable profile URL, and check that the downloadable card contains only the nickname, selected title, and pinned badges. Verify block/report actions work only while signed in. No profile should appear on the leaderboard until its owner opts in; the row exposes only nickname and XP.
+
+Nickname search, follows, badge feeds, friend comparisons, class codes, shared challenges, section leaderboards, and weekly spotlights are later-phase work.

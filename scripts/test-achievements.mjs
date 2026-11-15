@@ -4,9 +4,11 @@ import { resolve } from 'node:path';
 
 let achievementHelpers;
 let weeklyChallengeHelpers;
+let notificationHelpers;
 try {
   achievementHelpers = await import('../js/core/achievements.mjs');
   weeklyChallengeHelpers = await import('../js/core/weekly-challenge.mjs');
+  notificationHelpers = await import('../js/core/notifications.mjs');
 } catch (error) {
   assert.fail(`Achievement helpers must be available before catalog tests run: ${error.message}`);
 }
@@ -17,6 +19,7 @@ const catalog = await read('data/achievements.json');
 const weeklyCatalog = await read('data/weekly-challenges.json');
 const { validateAchievementCatalog, presentAchievement, getAvatarFrameTier } = achievementHelpers;
 const { getWeeklyChallenge } = weeklyChallengeHelpers;
+const { getAchievementProgress } = notificationHelpers;
 
 const categories = [
   'Getting started',
@@ -42,6 +45,15 @@ const expectedTitles = [
 ].sort();
 
 assert.equal(validateAchievementCatalog(catalog), undefined);
+assert.equal(typeof getAchievementProgress, 'function', 'achievement progress is available for the learner page');
+const achievementProgress = getAchievementProgress({
+  catalog,
+  events: [{ type: 'lesson-opened', data: {}, occurredAt: '2025-01-02T00:00:00Z' }],
+  completions: [{ type: 'lesson', activityId: 'logic-propositions', completedAt: '2025-01-02T00:00:00Z' }]
+});
+assert.deepEqual(achievementProgress['first-step'], { current: 1, target: 1 });
+assert.deepEqual(achievementProgress['logic-rookie'], { current: 1, target: 1 });
+assert.deepEqual(achievementProgress['practice-makes-perfect'], { current: 0, target: 50 });
 assert.equal(catalog.achievements.length, 23, 'all named achievement ideas and the weekly award are represented');
 assert.equal(new Set(catalog.achievements.map(({ id }) => id)).size, 23, 'achievement ids are unique');
 assert.deepEqual(catalog.achievements.map(({ id }) => id).sort(), expectedIds, 'every planned achievement id is present');

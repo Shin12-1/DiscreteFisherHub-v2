@@ -283,6 +283,7 @@ export async function signOut() {
 }
 
 export function getCurrentUser() { return currentSession?.user || null; }
+export async function getSupabaseClient() { return ensureClient(); }
 
 export async function getLeaderboard() {
   if (!isSupabaseConfigured()) return [];

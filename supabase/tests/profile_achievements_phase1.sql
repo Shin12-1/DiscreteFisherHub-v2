@@ -1,5 +1,5 @@
 begin;
-select plan(49);
+select plan(51);
 
 insert into auth.users (id, email)
 values
@@ -57,9 +57,6 @@ values
   ('33333333-3333-4333-8333-333333333333', 'private-learner-handle', 'badges', 'public', '{}'),
   ('33333333-3333-4333-8333-333333333333', 'private-learner-handle', 'mastery', 'public', '[]'),
   ('33333333-3333-4333-8333-333333333333', 'private-learner-handle', 'activity', 'public', '[]');
-
-insert into public.leaderboard_projection (user_id, nickname, xp)
-values ('11111111-1111-4111-8111-111111111111', 'Public Learner', 0);
 
 insert into public.notifications (user_id, achievement_id, title, body)
 values
@@ -137,6 +134,10 @@ select throws_ok(
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+select ok(
+  public.load_public_profile('public-learner-handle', true) is not null,
+  'a profile owner can preview their public profile'
+);
 select results_eq(
   $$select nickname from public.profile_public_projection where public_handle = 'member-learner-handle'$$,
   array['Member Learner']::text[],
@@ -300,6 +301,10 @@ select results_eq(
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+select ok(
+  public.load_public_profile('public-learner-handle', true) is null,
+  'a blocked learner cannot bypass profile blocks with visitor preview'
+);
 select is_empty(
   $$select reason from public.profile_reports$$,
   'another learner cannot read the reporter''s report'

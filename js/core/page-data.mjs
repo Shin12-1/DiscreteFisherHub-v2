@@ -1,6 +1,6 @@
-const topicPages = new Set(['dashboard', 'courses', 'progress', 'quizzes']);
-const lessonPages = new Set(['dashboard', 'courses', 'lessons', 'progress']);
-const quizPages = new Set(['dashboard', 'quizzes', 'practice', 'assessments', 'flashcards']);
+const topicPages = new Set(['dashboard', 'courses', 'progress', 'quizzes', 'public-profile']);
+const lessonPages = new Set(['dashboard', 'courses', 'lessons', 'progress', 'public-profile']);
+const quizPages = new Set(['dashboard', 'quizzes', 'practice', 'assessments', 'flashcards', 'public-profile']);
 
 export async function loadPageData(page, load) {
   const [topics, lessons, bank, notices] = await Promise.all([

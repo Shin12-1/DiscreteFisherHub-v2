@@ -18,7 +18,53 @@ function profileToggle(id, name, label, checked) {
   return `<label class="profile-toggle"><span>${label}</span><input id="${id}" name="${name}" type="checkbox" ${checked ? 'checked' : ''}></label>`;
 }
 
-export function profileView(user, state) {
+function visibilitySettingsView(settings, blockedProfiles, error, blockedProfilesError) {
+  if (error) return `<section class="profile-account clay" id="profile-visibility" data-profile-visibility><h2>Public profile and privacy</h2><p class="form-error" role="alert">${escape(error)}</p></section>`;
+  if (!settings) return `<section class="profile-account clay" id="profile-visibility" data-profile-visibility><h2>Public profile and privacy</h2><p>Loading your privacy settings…</p></section>`;
+  const visibilityOptions = [['private', 'Only me'], ['members', 'Signed-in learners'], ['public', 'Anyone with the link']];
+  const sectionSelect = (key, label) => profileSelect(
+    `profile-${key}-visibility`,
+    `${key}Visibility`,
+    label,
+    visibilityOptions,
+    settings[`${key}Visibility`]
+  );
+  const publicUrl = `${pageUrl('public-profile')}?handle=${encodeURIComponent(settings.publicHandle)}`;
+  const blockedMarkup = blockedProfilesError
+    ? `<p class="form-error" role="alert">${escape(blockedProfilesError)}</p>`
+    : blockedProfiles.length
+    ? `<ul class="blocked-profile-list">${blockedProfiles.map(({ handle, nickname }) => `<li><span>${escape(nickname)}</span><button class="button button-secondary" type="button" data-unblock-profile="${escape(handle)}">Unblock</button></li>`).join('')}</ul>`
+    : '<p>No profiles blocked.</p>';
+  return `<section class="profile-account clay" id="profile-visibility" data-profile-visibility>
+    <h2>Public profile and privacy</h2>
+    <p>Your profile is private by default. Choose what signed-in learners or anyone with your link can see.</p>
+    <form class="profile-visibility-form" data-profile-visibility-form>
+      <div class="profile-field-grid">
+        ${profileSelect('profile-access', 'profileVisibility', 'Who can open your profile?', visibilityOptions, settings.profileVisibility)}
+      </div>
+      <div class="profile-toggle-list">
+        ${profileToggle('profile-search-opt-in', 'searchOptIn', 'Allow your profile in learner search', settings.searchOptIn)}
+        ${profileToggle('profile-leaderboard-opt-in', 'leaderboardOptIn', 'Show my nickname and XP on the leaderboard', settings.leaderboardOptIn)}
+      </div>
+      <h3>Profile sections</h3>
+      <div class="profile-field-grid">
+        ${sectionSelect('studyTime', 'Study time')}
+        ${sectionSelect('fastestTimes', 'Fastest times')}
+        ${sectionSelect('stats', 'Learning stats')}
+        ${sectionSelect('badges', 'Pinned achievements')}
+        ${sectionSelect('mastery', 'Topic mastery')}
+        ${sectionSelect('activity', 'Recent milestones')}
+      </div>
+      <p class="profile-note">Sharing your profile does not make your email or account ID public.</p>
+      <p data-profile-visibility-status class="form-message" role="status" hidden></p>
+      <button class="button button-primary" type="submit">Save privacy settings</button>
+    </form>
+    <div class="profile-share-link"><h3>Your profile link</h3><a data-public-profile-url href="${escape(publicUrl)}">${escape(publicUrl)}</a></div>
+    <div class="profile-blocked-list"><h3>Blocked profiles</h3>${blockedMarkup}</div>
+  </section>`;
+}
+
+export function profileView(user, state, visibilitySettings = null, blockedProfiles = [], profileSettingsError = '', blockedProfilesError = '') {
   const signedIn = Boolean(user);
   const nickname = String(state.nickname || 'Fisher learner');
   const preferences = normalizeProfilePreferences(state.profilePreferences);
@@ -118,6 +164,7 @@ export function profileView(user, state) {
     <p>${signedIn ? 'Your email is used to sign in. Course progress and quiz history are private to your account.' : 'You can study without an account. Sign in only if you want to sync your lesson progress across devices.'}</p>
     ${signedIn ? `<a class="button button-secondary" data-change-email href="${pageUrl('change-email')}">Change email address</a><a class="button button-secondary" data-reauthenticate href="${pageUrl('reauthenticate')}">Verify your identity</a><button class="button button-secondary" type="button" data-logout>Log out</button>` : `<a class="button button-primary" href="${pageUrl('login')}">Sign in to sync</a>`}
   </section>
+  ${signedIn ? visibilitySettingsView(visibilitySettings, blockedProfiles, profileSettingsError, blockedProfilesError) : ''}
   </div>`;
 }
 

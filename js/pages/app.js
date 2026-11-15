@@ -2,7 +2,7 @@ import { getState, saveState, saveProfilePreferences, touchStreak, completeLesso
 import { initTheme, toggleTheme } from '../core/theme.js';
 import { shell } from '../components/shell.js';
 import { pageUrl } from '../core/router.js';
-import { getCurrentUser, getLeaderboard, getQuizAttempts, initialiseAuth, recordQuizAttempt, signOut } from '../core/auth.js';
+import { getCurrentUser, getLeaderboard, getQuizAttempts, getSupabaseClient, initialiseAuth, recordQuizAttempt, signOut } from '../core/auth.js';
 import { loadPageData } from '../core/page-data.mjs';
 import { validateNickname } from '../core/auth-validation.mjs';
 import { normalizeProfilePreferences } from '../core/profile-preferences.mjs';
@@ -16,11 +16,23 @@ import { recordActivityCompletion, recordLearnerEvent, recordStudySession, syncP
 import {
   countUnreadNotifications,
   evaluateAndSaveGuestAchievements,
+  getAchievementProgress,
   listGuestNotifications,
   listNotifications,
   markGuestNotificationRead,
   markNotificationRead
 } from '../core/notifications.mjs';
+import { getWeeklyChallenge } from '../core/weekly-challenge.mjs';
+import {
+  createPublicProfileUrl,
+  listBlockedProfiles,
+  loadProfileSettings,
+  loadPublicProfile,
+  saveProfilePresentation,
+  saveProfileVisibility,
+  unblockProfile
+} from '../core/profile-data.mjs';
+import { bindPublicProfileActions } from './public-profile.js';
 
 let quizApi;
 let practiceApi;
@@ -180,6 +192,90 @@ function getActivityAdapter() {
   return adapter.kind === 'supabase' ? adapter : null;
 }
 
+async function loadAchievementsPageData(catalog, challengeCatalog) {
+  const user = getCurrentUser();
+  const adapter = getActivityAdapter();
+  let events;
+  let completions;
+  let studySessions;
+  let unlocks;
+  let pinnedBadgeIds = [];
+  let titleId = null;
+  let client = adapter?.client || null;
+
+  if (user) {
+    if (!client) throw new Error('Your signed-in profile connection is unavailable.');
+    const [eventsResult, completionsResult, sessionsResult, unlocksResult, settings] = await Promise.all([
+      client.from('learning_events').select('event_type, event_data, occurred_at'),
+      client.from('activity_completions').select('activity_type, activity_id, score, total, completed_at'),
+      client.from('study_sessions').select('started_at, duration_seconds'),
+      client.from('user_achievements').select('achievement_id, period_key, unlocked_at'),
+      loadProfileSettings({ client })
+    ]);
+    for (const [result, label] of [
+      [eventsResult, 'learner events'],
+      [completionsResult, 'activity completions'],
+      [sessionsResult, 'study sessions'],
+      [unlocksResult, 'achievement history']
+    ]) {
+      if (result.error) throw result.error;
+      if (!Array.isArray(result.data)) throw new TypeError(`The ${label} query returned invalid data.`);
+    }
+    events = eventsResult.data.map((event) => ({
+      type: event.event_type,
+      data: event.event_data,
+      occurredAt: event.occurred_at
+    }));
+    completions = completionsResult.data.map((item) => ({
+      type: item.activity_type,
+      activityId: item.activity_id,
+      score: item.score,
+      total: item.total,
+      completedAt: item.completed_at
+    }));
+    studySessions = sessionsResult.data.map((session) => ({
+      startedAt: session.started_at,
+      durationSeconds: session.duration_seconds
+    }));
+    unlocks = unlocksResult.data.map((unlock) => ({
+      achievementId: unlock.achievement_id,
+      periodKey: unlock.period_key,
+      unlockedAt: unlock.unlocked_at
+    }));
+    pinnedBadgeIds = settings.pinnedBadgeIds;
+    titleId = catalog.achievements.find(({ rewards }) => rewards?.title === settings.selectedTitle)?.id || null;
+  } else {
+    const localAdapter = getLocalStorageAdapter();
+    const [activity, sessions, saved, presentation] = await Promise.all([
+      localAdapter.get('learner-events:guest', { events: [], completions: [] }),
+      localAdapter.get('study-sessions:guest', []),
+      localAdapter.get('guest-achievements', { unlocked: [], notifications: [] }),
+      localAdapter.get('guest-profile-presentation', { selectedTitle: null, pinnedBadgeIds: [] })
+    ]);
+    events = Array.isArray(activity?.events) ? activity.events : [];
+    completions = Array.isArray(activity?.completions) ? activity.completions : [];
+    studySessions = Array.isArray(sessions) ? sessions : [];
+    unlocks = Array.isArray(saved?.unlocked) ? saved.unlocked : [];
+    pinnedBadgeIds = Array.isArray(presentation?.pinnedBadgeIds) ? presentation.pinnedBadgeIds : [];
+    titleId = typeof presentation?.selectedTitle === 'string' ? presentation.selectedTitle : null;
+  }
+
+  const weeklyChallenge = getWeeklyChallenge({ now: new Date(), challengeCatalog });
+  const progress = getAchievementProgress({ catalog, events, completions, studySessions, weeklyChallenge });
+  return {
+    unlocks,
+    progress,
+    weeklyChallenge: {
+      ...weeklyChallenge,
+      current: progress['weekly-scholar']?.current || 0
+    },
+    pinnedBadgeIds,
+    titleId,
+    client,
+    user
+  };
+}
+
 async function recordLearnerActivity(event, errorMessage) {
   try {
     const result = await recordLearnerEvent({
@@ -286,13 +382,15 @@ function retryPendingStudySessions() {
 }
 
 async function loadPageViews(pageName) {
-  const [learning, student, practice, quiz] = await Promise.all([
+  const [learning, student, practice, quiz, achievementsView, publicProfileView] = await Promise.all([
     ['dashboard', 'courses', 'lessons'].includes(pageName) ? import('./learning-views.js') : null,
     ['profile', 'progress'].includes(pageName) ? import('./student-views.js') : null,
     ['practice', 'assessments', 'flashcards'].includes(pageName) ? import('./practice-views.js') : null,
-    ['quizzes', 'practice', 'assessments'].includes(pageName) ? import('../core/quiz.mjs') : null
+    ['quizzes', 'practice', 'assessments'].includes(pageName) ? import('../core/quiz.mjs') : null,
+    pageName === 'achievements' ? import('./achievements-view.mjs') : null,
+    pageName === 'public-profile' ? import('./public-profile-view.mjs') : null
   ]);
-  return { learning, student, practice, quiz };
+  return { learning, student, practice, quiz, achievementsView, publicProfileView };
 }
 
 const withShuffledChoices = (questions) => questions.map((question) => quizApi.shuffleChoices(question));
@@ -720,6 +818,12 @@ async function render() {
     }
 
     let content;
+    let profileSettings = null;
+    let blockedProfiles = [];
+    let profileSettingsError = '';
+    let blockedProfilesError = '';
+    let achievementPageData = null;
+    let publicProfileContext = null;
     if (page === 'dashboard') {
       let attempts = [];
       let attemptsError = '';
@@ -744,7 +848,31 @@ async function render() {
       const lessonId = new URLSearchParams(location.search).get('lesson') || 'logic-propositions';
       content = views.learning.lessonsView(logic.lessons, state, lessonId);
     } else if (page === 'profile') {
-      content = views.student.profileView(getCurrentUser(), state);
+      if (getCurrentUser()) {
+        const client = getActivityAdapter()?.client;
+        try {
+          profileSettings = await loadProfileSettings({ client });
+        } catch (error) {
+          console.error('Could not load profile privacy settings.', error);
+          profileSettingsError = 'Privacy settings could not be loaded.';
+        }
+        if (profileSettings) {
+          try {
+            blockedProfiles = await listBlockedProfiles({ client });
+          } catch (error) {
+            console.error('Could not load blocked profiles.', error);
+            blockedProfilesError = 'Blocked profiles could not be loaded.';
+          }
+        }
+      }
+      content = views.student.profileView(
+        getCurrentUser(),
+        state,
+        profileSettings,
+        blockedProfiles,
+        profileSettingsError,
+        blockedProfilesError
+      );
     } else if (page === 'progress') {
       let attempts = null;
       try {
@@ -753,6 +881,48 @@ async function render() {
         console.error('Could not load progress quiz history.', error);
       }
       content = views.student.progressView(topics, logic.lessons, state, attempts);
+    } else if (page === 'achievements') {
+      achievementPageData = await loadAchievementsPageData(achievements, weeklyChallenges.challenges);
+      content = views.achievementsView.renderAchievementsView({
+        catalog: achievements,
+        unlocks: achievementPageData.unlocks,
+        progress: achievementPageData.progress,
+        weeklyChallenge: achievementPageData.weeklyChallenge,
+        pinnedBadgeIds: achievementPageData.pinnedBadgeIds,
+        titleId: achievementPageData.titleId
+      }).outerHTML;
+    } else if (page === 'public-profile') {
+      const handle = new URLSearchParams(location.search).get('handle');
+      if (!/^[a-f0-9]{32}$/i.test(handle || '')) {
+        content = '<section class="empty clay"><h1>Profile not available</h1><p>This profile link is invalid or unavailable.</p></section>';
+      } else {
+        const client = getActivityAdapter()?.client || await getSupabaseClient();
+        const ownerSettings = getCurrentUser() ? await loadProfileSettings({ client }) : null;
+        const isOwner = ownerSettings?.publicHandle === handle;
+        const visitorPreview = isOwner && new URLSearchParams(location.search).get('preview') === 'visitor';
+        const profile = await loadPublicProfile({ client, handle, visitorPreview });
+        if (!profile) {
+          content = '<section class="empty clay"><h1>Profile not available</h1><p>This profile is private or unavailable.</p></section>';
+        } else {
+          const element = views.publicProfileView.renderPublicProfileView({
+            profile,
+            isOwner: isOwner && !visitorPreview,
+            shareAllowed: !isOwner || ownerSettings.profileVisibility !== 'private',
+            topics,
+            lessons: logic.lessons,
+            quizzes: bank.quizzes
+          });
+          content = element.outerHTML;
+          publicProfileContext = {
+            client,
+            handle,
+            profile,
+            isSignedIn: Boolean(getCurrentUser()),
+            shareAllowed: !isOwner || ownerSettings.profileVisibility !== 'private',
+            profileUrl: createPublicProfileUrl(handle)
+          };
+        }
+      }
     } else if (page === 'practice') {
       content = views.practice.practiceView(bank);
     } else if (page === 'assessments') {
@@ -766,6 +936,79 @@ async function render() {
     renderShell(content, state.theme);
     app.setAttribute('aria-busy', 'false');
     if (page === 'dashboard') fillLeaderboard();
+    if (publicProfileContext) {
+      bindPublicProfileActions({
+        root: app.querySelector('.public-profile-page'),
+        ...publicProfileContext
+      });
+    }
+    if (achievementPageData) {
+      const achievementStatus = app.querySelector('[data-achievement-status]');
+      const savePresentation = async (titleId, pinnedBadgeIds) => {
+        const earnedIds = new Set(achievementPageData.unlocks.map(({ achievementId }) => achievementId));
+        if (titleId && !achievements.achievements.some(({ id, rewards }) =>
+          id === titleId && rewards?.title && earnedIds.has(id))) {
+          throw new Error('Only an earned title can be selected.');
+        }
+        if (!Array.isArray(pinnedBadgeIds) || pinnedBadgeIds.length > 3 ||
+          new Set(pinnedBadgeIds).size !== pinnedBadgeIds.length ||
+          pinnedBadgeIds.some((id) => !earnedIds.has(id))) {
+          throw new Error('Choose up to three unique earned badges.');
+        }
+        if (achievementPageData.user) {
+          await saveProfilePresentation({
+            client: achievementPageData.client,
+            titleId: titleId || null,
+            pinnedBadgeIds
+          });
+        } else {
+          await getLocalStorageAdapter().set('guest-profile-presentation', {
+            selectedTitle: titleId || null,
+            pinnedBadgeIds
+          });
+        }
+        achievementPageData.titleId = titleId || null;
+        achievementPageData.pinnedBadgeIds = pinnedBadgeIds;
+        achievementStatus.hidden = false;
+        achievementStatus.textContent = 'Profile presentation saved.';
+        achievementStatus.setAttribute('role', 'status');
+      };
+      app.querySelector('[data-profile-title]')?.addEventListener('change', async (event) => {
+        const control = event.currentTarget;
+        control.disabled = true;
+        try {
+          await savePresentation(control.value, achievementPageData.pinnedBadgeIds);
+        } catch (error) {
+          console.error('Could not save the selected profile title.', error);
+          control.value = achievementPageData.titleId || '';
+          achievementStatus.hidden = false;
+          achievementStatus.textContent = error.message || 'Could not save your profile title.';
+          achievementStatus.setAttribute('role', 'alert');
+        } finally {
+          control.disabled = false;
+        }
+      });
+      app.querySelectorAll('[data-pin-badge]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const next = new Set(achievementPageData.pinnedBadgeIds);
+          if (next.has(button.dataset.pinBadge)) next.delete(button.dataset.pinBadge);
+          else next.add(button.dataset.pinBadge);
+          button.disabled = true;
+          try {
+            await savePresentation(achievementPageData.titleId, [...next]);
+            button.setAttribute('aria-pressed', String(next.has(button.dataset.pinBadge)));
+            button.textContent = next.has(button.dataset.pinBadge) ? 'Unpin badge' : 'Pin badge';
+          } catch (error) {
+            console.error('Could not save pinned achievements.', error);
+            achievementStatus.hidden = false;
+            achievementStatus.textContent = error.message || 'Could not save pinned achievements.';
+            achievementStatus.setAttribute('role', 'alert');
+          } finally {
+            button.disabled = false;
+          }
+        });
+      });
+    }
     app.querySelector('[data-theme-toggle]')?.addEventListener('click', async () => {
       await toggleTheme();
       render();
@@ -852,6 +1095,63 @@ async function render() {
           status.textContent = 'Could not log out. Please try again.';
         }
       }
+    });
+    app.querySelector('[data-profile-visibility-form]')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const status = form.querySelector('[data-profile-visibility-status]');
+      const settings = {
+        profileVisibility: form.elements.profileVisibility.value,
+        searchOptIn: form.elements.searchOptIn.checked,
+        leaderboardOptIn: form.elements.leaderboardOptIn.checked,
+        studyTimeVisibility: form.elements.studyTimeVisibility.value,
+        fastestTimesVisibility: form.elements.fastestTimesVisibility.value,
+        statsVisibility: form.elements.statsVisibility.value,
+        badgesVisibility: form.elements.badgesVisibility.value,
+        masteryVisibility: form.elements.masteryVisibility.value,
+        activityVisibility: form.elements.activityVisibility.value
+      };
+      const controls = [...form.elements];
+      controls.forEach((control) => { control.disabled = true; });
+      try {
+        await saveProfileVisibility({ client: getActivityAdapter()?.client, settings });
+        status.hidden = false;
+        status.textContent = 'Privacy settings saved.';
+        status.setAttribute('role', 'status');
+      } catch (error) {
+        console.error('Could not save profile privacy settings.', error);
+        status.hidden = false;
+        status.textContent = error.message || 'Could not save privacy settings.';
+        status.setAttribute('role', 'alert');
+      } finally {
+        controls.forEach((control) => { control.disabled = false; });
+      }
+    });
+    app.querySelectorAll('[data-unblock-profile]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const status = app.querySelector('[data-profile-visibility-status]');
+        button.disabled = true;
+        try {
+          await unblockProfile({
+            client: getActivityAdapter()?.client,
+            handle: button.dataset.unblockProfile
+          });
+          button.closest('li')?.remove();
+          if (status) {
+            status.hidden = false;
+            status.textContent = 'Profile unblocked.';
+            status.setAttribute('role', 'status');
+          }
+        } catch (error) {
+          console.error('Could not unblock the profile.', error);
+          if (status) {
+            status.hidden = false;
+            status.textContent = error.message || 'Could not unblock this profile.';
+            status.setAttribute('role', 'alert');
+          }
+          button.disabled = false;
+        }
+      });
     });
     app.querySelector('[data-profile-form]')?.addEventListener('submit', async (event) => {
       event.preventDefault();

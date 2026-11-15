@@ -110,6 +110,7 @@ function createSessionClient(session, authOverrides = {}, callbackEvent = null, 
       if (callbackEvent) authListener?.(callbackEvent, session);
       return { data: { session }, error: null };
     },
+    getUser: async () => ({ data: { user: session?.user || null }, error: null }),
     onAuthStateChange: (listener) => {
       authListener = listener;
       return { data: { subscription: { unsubscribe() { authListener = null; } } } };
@@ -118,10 +119,29 @@ function createSessionClient(session, authOverrides = {}, callbackEvent = null, 
   };
   return {
     auth,
+    rpc: async (name) => ({ data: name === 'list_blocked_profiles' ? [] : null, error: null }),
     from(table) {
       const result = {
         data: table === 'profiles'
-          ? { nickname: 'Learner', xp: 0, level: 1, streak: 0, last_active: null }
+          ? {
+            nickname: 'Learner',
+            xp: 0,
+            level: 1,
+            streak: 0,
+            last_active: null,
+            public_handle: 'a'.repeat(32),
+            profile_visibility: 'private',
+            search_opt_in: false,
+            study_time_visibility: 'private',
+            fastest_times_visibility: 'private',
+            stats_visibility: 'private',
+            badges_visibility: 'private',
+            mastery_visibility: 'private',
+            activity_visibility: 'private',
+            leaderboard_opt_in: false,
+            selected_title: null,
+            pinned_badge_ids: []
+          }
           : [],
         error: null
       };
@@ -680,6 +700,65 @@ test('signed-in profile exposes account security links while guest profile does 
   page.done();
 });
 
+test('profile: signed-in learner can save public visibility and leaderboard opt-in', async () => {
+  const session = { user: { id: 'user-profile-visibility', email: 'student@example.com' } };
+  const databaseCalls = [];
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
+  });
+  const form = page.$('[data-profile-visibility-form]');
+  assert.ok(form, 'signed-in profile includes privacy settings');
+  assert.ok(page.$('[data-public-profile-url]')?.href.includes('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
+  form.elements.profileVisibility.value = 'public';
+  form.elements.studyTimeVisibility.value = 'public';
+  form.elements.searchOptIn.checked = true;
+  form.elements.leaderboardOptIn.checked = true;
+  form.dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+  await page.until(() => /privacy settings saved/i.test(page.$('[data-profile-visibility-status]').textContent), 'saved profile visibility');
+  const update = databaseCalls.find(({ table }) => table === 'profiles');
+  assert.deepEqual(update.payload, {
+    profile_visibility: 'public',
+    search_opt_in: true,
+    leaderboard_opt_in: true,
+    study_time_visibility: 'public',
+    fastest_times_visibility: 'private',
+    stats_visibility: 'private',
+    badges_visibility: 'private',
+    mastery_visibility: 'private',
+    activity_visibility: 'private'
+  });
+  page.done();
+});
+
+test('achievements: guest unlocks, progress, and pinned badges persist locally', async () => {
+  const page = await openPage('pages/achievements.html', {
+    seed: {
+      'dfh:learner-events:guest': {
+        events: [{
+          id: 'guest-opened-first-lesson',
+          type: 'lesson-opened',
+          data: { lessonId: 'logic-propositions' },
+          occurredAt: '2025-01-02T00:00:00Z'
+        }],
+        completions: []
+      }
+    }
+  });
+  assert.match(page.text(), /1 of 23 earned/);
+  assert.ok(page.$('[data-achievement="first-step"].achievement-earned'));
+  page.click('[data-pin-badge="first-step"]');
+  await page.until(() => page.storage('dfh:guest-profile-presentation')?.pinnedBadgeIds?.includes('first-step'), 'saved guest badge pin');
+  page.done();
+});
+
+test('public profile: invalid handles are unavailable without requiring a session', async () => {
+  const page = await openPage('pages/public-profile.html', { search: '?handle=invalid' });
+  assert.match(page.text(), /profile link is invalid or unavailable/i);
+  assert.ok(page.$('script[src="../js/vendor/qrcode-generator.js"]'), 'public profile loads the local QR asset');
+  page.done();
+});
+
 test('profile: guest with legacy state gets local preference defaults', async () => {
   const page = await openPage('pages/profile.html', {
     seed: { 'dfh:learner-state': { nickname: 'Legacy learner', xp: 25, completedLessons: [] } }
@@ -854,6 +933,8 @@ for (const [file, heading] of [
   ['pages/assessments.html', 'Check what is sticking'],
   ['pages/progress.html', 'Progress you can understand'],
   ['pages/profile.html', 'Your study profile'],
+  ['pages/achievements.html', 'Small wins add up'],
+  ['pages/public-profile.html', 'Profile not available'],
   ['pages/login.html', 'Welcome back']
 ]) {
   test(`${file} renders without errors`, async () => {
