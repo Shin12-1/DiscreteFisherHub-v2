@@ -200,6 +200,37 @@ test('visitor view shows available profile sections and only visitor actions', (
   dom.window.close();
 });
 
+test('owner profile renderer supports in-page edit targets and keeps standalone links', () => {
+  const oldDocument = globalThis.document;
+  const oldLocation = globalThis.location;
+  const dom = new JSDOM('<!doctype html>');
+  globalThis.document = dom.window.document;
+  globalThis.location = { pathname: '/pages/profile.html' };
+  try {
+    const embedded = renderPublicProfileView({
+      profile,
+      isOwner: true,
+      ownerActionTargets: { edit: '#profile-details', visibility: '#profile-visibility' },
+      headingLevel: 'h2',
+      achievementTotal: 24
+    });
+    dom.window.document.body.append(embedded);
+    assert.equal(embedded.querySelector('.public-profile-identity h2')?.textContent, 'Logic Learner');
+    assert.equal(embedded.querySelector('.public-profile-identity h1'), null);
+    assert.equal(embedded.querySelector('[data-owner-controls] a')?.getAttribute('href'), '#profile-details');
+    assert.equal(embedded.querySelector('[data-profile-visibility]')?.getAttribute('href'), '#profile-visibility');
+    assert.equal(embedded.querySelector('[data-profile-pinned-badges]')?.getAttribute('href'), '../pages/achievements.html');
+    assert.match(embedded.querySelector('[data-profile-badges]').textContent, /12 of 24/);
+
+    const standalone = renderPublicProfileView({ profile, isOwner: true });
+    assert.equal(standalone.querySelector('[data-owner-controls] a')?.getAttribute('href'), 'profile.html');
+  } finally {
+    globalThis.document = oldDocument;
+    globalThis.location = oldLocation;
+    dom.window.close();
+  }
+});
+
 test('profile report form stays visually hidden until opened', async () => {
   const css = await readFile(resolve(root, 'css/pages.css'), 'utf8');
   const formStyles = [...css.matchAll(/\.profile-report-form(?:\[hidden\])?\s*\{[^}]+\}/g)]

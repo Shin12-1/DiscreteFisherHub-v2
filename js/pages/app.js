@@ -388,7 +388,7 @@ async function loadPageViews(pageName) {
     ['practice', 'assessments', 'flashcards'].includes(pageName) ? import('./practice-views.js') : null,
     ['quizzes', 'practice', 'assessments'].includes(pageName) ? import('../core/quiz.mjs') : null,
     pageName === 'achievements' ? import('./achievements-view.mjs') : null,
-    pageName === 'public-profile' ? import('./public-profile-view.mjs') : null
+    ['profile', 'public-profile'].includes(pageName) ? import('./public-profile-view.mjs') : null
   ]);
   return { learning, student, practice, quiz, achievementsView, publicProfileView };
 }
@@ -822,6 +822,8 @@ async function render() {
     let blockedProfiles = [];
     let profileSettingsError = '';
     let blockedProfilesError = '';
+    let ownerDashboardMarkup = null;
+    let ownerDashboardError = '';
     let achievementPageData = null;
     let publicProfileContext = null;
     if (page === 'dashboard') {
@@ -848,7 +850,8 @@ async function render() {
       const lessonId = new URLSearchParams(location.search).get('lesson') || 'logic-propositions';
       content = views.learning.lessonsView(logic.lessons, state, lessonId);
     } else if (page === 'profile') {
-      if (getCurrentUser()) {
+      const user = getCurrentUser();
+      if (user) {
         const client = getActivityAdapter()?.client;
         try {
           profileSettings = await loadProfileSettings({ client });
@@ -863,6 +866,47 @@ async function render() {
             console.error('Could not load blocked profiles.', error);
             blockedProfilesError = 'Blocked profiles could not be loaded.';
           }
+          if (!profileSettings.publicHandle) {
+            ownerDashboardError = 'Your profile link is not available yet.';
+          } else {
+            try {
+              const profile = await loadPublicProfile({
+                client,
+                handle: profileSettings.publicHandle,
+                visitorPreview: false
+              });
+              if (!profile) {
+                ownerDashboardError = 'Your profile is unavailable.';
+              } else {
+                const shareAllowed = profileSettings.profileVisibility !== 'private';
+                const element = views.publicProfileView.renderPublicProfileView({
+                  profile,
+                  isOwner: true,
+                  shareAllowed,
+                  topics,
+                  lessons: logic.lessons,
+                  quizzes: bank.quizzes,
+                  ownerActionTargets: { edit: '#profile-details', visibility: '#profile-visibility' },
+                  headingLevel: 'h2',
+                  achievementTotal: achievements.achievements.length
+                });
+                ownerDashboardMarkup = element.outerHTML;
+                publicProfileContext = {
+                  client,
+                  handle: profileSettings.publicHandle,
+                  profile,
+                  isSignedIn: true,
+                  shareAllowed,
+                  profileUrl: createPublicProfileUrl(profileSettings.publicHandle)
+                };
+              }
+            } catch (error) {
+              console.error('Could not load the owner profile dashboard.', error);
+              ownerDashboardError = 'Could not load your profile dashboard.';
+            }
+          }
+        } else if (profileSettingsError) {
+          ownerDashboardError = 'Could not load your profile dashboard.';
         }
       }
       content = views.student.profileView(
@@ -871,7 +915,8 @@ async function render() {
         profileSettings,
         blockedProfiles,
         profileSettingsError,
-        blockedProfilesError
+        blockedProfilesError,
+        { markup: ownerDashboardMarkup, error: ownerDashboardError }
       );
     } else if (page === 'progress') {
       let attempts = null;
@@ -910,7 +955,8 @@ async function render() {
             shareAllowed: !isOwner || ownerSettings.profileVisibility !== 'private',
             topics,
             lessons: logic.lessons,
-            quizzes: bank.quizzes
+            quizzes: bank.quizzes,
+            achievementTotal: achievements.achievements.length
           });
           content = element.outerHTML;
           publicProfileContext = {
@@ -1194,7 +1240,17 @@ async function render() {
           }, 'Could not record the nickname change.');
         }
         app.querySelector('.profile-summary h2').textContent = nickname;
-        app.querySelector('.profile-avatar').textContent = nickname.charAt(0).toUpperCase();
+        app.querySelector('.profile-summary .profile-avatar').textContent = nickname.charAt(0).toUpperCase();
+        const dashboardIdentity = app.querySelector('.public-profile-identity');
+        if (dashboardIdentity) {
+          dashboardIdentity.querySelector('h2').textContent = nickname;
+          dashboardIdentity.querySelector('.profile-avatar').textContent = nickname
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => part[0])
+            .join('')
+            .toUpperCase();
+        }
         input.value = nickname;
         document.documentElement.dataset.theme = next.theme;
         document.documentElement.dataset.reduceMotion = String(profilePreferences.reduceMotion);

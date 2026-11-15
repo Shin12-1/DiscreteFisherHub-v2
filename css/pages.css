@@ -219,6 +219,9 @@
 }
 .profile-page { width:min(100%,1040px); min-width:0; margin-inline:auto; }
 .profile-page .learning-page-intro { max-width:760px; }
+.profile-dashboard-message { display:grid; justify-items:start; gap:10px; padding:22px; }
+.profile-dashboard-message h2,.profile-dashboard-message p { margin:0; }
+.profile-dashboard-message .button { min-height:44px; }
 .profile-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; align-items:start; }
 .profile-summary,.profile-editor,.profile-account { min-width:0; padding:24px; }
 .profile-summary { padding:14px 18px; }
@@ -276,17 +279,33 @@
 .profile-title,.profile-member-since { margin:5px 0 0; color:var(--muted); }
 .profile-owner-actions,.profile-visitor-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
 .profile-owner-actions .button,.profile-visitor-actions .button { min-height:44px; }
+.profile-page .profile-owner-dashboard { gap:14px; margin:0 0 24px; }
+.profile-owner-dashboard .public-profile-identity h2 { margin:0; overflow-wrap:anywhere; }
 .public-profile-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:14px; align-items:start; }
+.profile-owner-dashboard .public-profile-sections {
+  grid-template-columns:minmax(0,1.45fr) minmax(250px,.85fr);
+  grid-template-areas:"stats stats" "study-time badges" "fastest badges" "activity mastery";
+}
+.profile-owner-dashboard [data-profile-stats] { grid-area:stats; padding:0; background:transparent; border:0; box-shadow:none; }
+.profile-owner-dashboard [data-profile-study-time] { grid-area:study-time; }
+.profile-owner-dashboard [data-profile-fastest-times] { grid-area:fastest; }
+.profile-owner-dashboard [data-profile-badges] { grid-area:badges; }
+.profile-owner-dashboard [data-profile-mastery] { grid-area:mastery; }
+.profile-owner-dashboard [data-profile-activity] { grid-area:activity; }
 .public-profile-section { min-width:0; padding:20px; }
 .public-profile-section h2 { margin:0 0 16px; font-size:1.15rem; }
 .profile-time-stats,.profile-stat-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:12px; margin:0; }
 .profile-time-stats div,.profile-stat-list div { display:grid; gap:5px; min-width:0; }
 .profile-time-stats dt,.profile-stat-list dt { color:var(--muted); font-size:.875rem; font-weight:750; }
 .profile-time-stats dd,.profile-stat-list dd { margin:0; font-size:1.2rem; font-weight:850; overflow-wrap:anywhere; }
+.profile-owner-dashboard .profile-stat-list { grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.profile-owner-dashboard .profile-stat-list div { padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:14px; }
 .profile-fastest-list,.profile-activity-list,.profile-mastery-list,.profile-badge-list { display:grid; gap:10px; padding:0; margin:0; list-style:none; }
 .profile-fastest-list li { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:10px; padding-bottom:10px; border-bottom:1px solid var(--border); }
 .profile-fastest-list li span:first-child { min-width:0; overflow-wrap:anywhere; }
 .profile-earned-count { margin:14px 0 0; color:var(--muted); }
+.profile-pinned-edit { display:inline-flex; min-height:44px; align-items:center; margin:-6px 0 14px; font-weight:800; }
+.profile-page #profile-details,.profile-page #profile-visibility { scroll-margin-top:24px; }
 .profile-badge-list { grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); }
 .profile-badge-list li { display:grid; justify-items:start; gap:8px; min-width:0; padding:12px; background:var(--surface-soft); border:1px solid var(--border); border-radius:14px; }
 .profile-badge-list strong { overflow-wrap:anywhere; }
@@ -378,6 +397,11 @@
   .progress-detail-grid { grid-template-columns:1fr; }
   .public-profile-header { grid-template-columns:minmax(0,1fr); align-items:start; }
   .profile-owner-actions,.profile-visitor-actions { justify-content:flex-start; }
+  .profile-owner-dashboard .public-profile-sections {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"stats" "study-time" "fastest" "badges" "mastery" "activity";
+  }
+  .profile-owner-dashboard .profile-stat-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:560px) {
   .progress-summary-grid { grid-template-columns:1fr; }

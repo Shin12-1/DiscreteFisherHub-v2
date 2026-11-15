@@ -666,6 +666,127 @@ test('magic-link callback errors show an expired-link message', async () => {
 
 const savedAuthToken = { [`sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`]: { access_token: 'test-token' } };
 
+test('profile: owner dashboard loads private learner data above Personal details', async () => {
+  const session = { user: { id: 'user-owner-dashboard', email: 'student@example.com' } };
+  const handle = 'a'.repeat(32);
+  const rpcCalls = [];
+  const client = createSessionClient(session);
+  client.rpc = async (name, args) => {
+    rpcCalls.push({ name, args });
+    if (name === 'load_public_profile') {
+      return {
+        data: {
+          handle,
+          nickname: 'Mika Santos',
+          title: 'Logic Apprentice',
+          level: 8,
+          memberSince: '2025-09-01',
+          sections: {
+            studyTime: { totalSeconds: 66240, thisWeekSeconds: 15000, averageSecondsPerDay: 2520 },
+            fastestTimes: { items: [{ type: 'quiz', title: 'Truth tables quiz', durationSeconds: 161, score: 5, total: 5 }] },
+            stats: { xp: 2480, streak: 12, lessonsCompleted: 18, quizzesTaken: 34 },
+            badges: { pinned: [{ id: 'first-step', title: 'First Step' }], earnedCount: 12 },
+            mastery: [{ title: 'Propositional logic', completed: 9, total: 10, percent: 90 }],
+            activity: [{ label: 'Finished Logic course', occurredAt: '2025-10-28T00:00:00Z' }]
+          }
+        },
+        error: null
+      };
+    }
+    return { data: [], error: null };
+  };
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => client }
+  });
+  const dashboard = page.$('.public-profile-page');
+  const personalDetails = page.$('#profile-details');
+  assert.ok(
+    dashboard,
+    `owner profile dashboard is rendered on the profile route; error: ${page.$('[data-profile-dashboard-error]')?.textContent || 'none'}; console: ${page.errors.join(' | ') || 'none'}`
+  );
+  assert.ok(personalDetails, 'Personal details remain editable below the dashboard');
+  assert.ok(dashboard.compareDocumentPosition(personalDetails) & page.window.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.match(dashboard.textContent, /Mika Santos/);
+  assert.match(dashboard.textContent, /Truth tables quiz/);
+  assert.match(dashboard.textContent, /Finished Logic course/);
+  assert.match(dashboard.querySelector('[data-profile-badges]').textContent, /12 of 23/);
+  assert.equal(dashboard.querySelector('[data-profile-share]').disabled, true, 'private owners cannot share their profile');
+  assert.equal(dashboard.querySelector('[data-profile-preview]').getAttribute('href').includes('preview=visitor'), true);
+  assert.equal(dashboard.querySelector('[data-profile-visibility]').getAttribute('href'), '#profile-visibility');
+  assert.deepEqual(rpcCalls.find(({ name }) => name === 'load_public_profile'), {
+    name: 'load_public_profile',
+    args: { target_handle: handle, visitor_preview: false }
+  });
+  assert.ok(page.$('[data-profile-visibility-form]'), 'privacy settings remain available below the dashboard');
+  const nickname = page.$('#profile-nickname');
+  nickname.value = 'Mika Chen';
+  page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
+  await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
+  assert.equal(dashboard.querySelector('.public-profile-identity h2').textContent, 'Mika Chen');
+  assert.equal(dashboard.querySelector('.public-profile-identity .profile-avatar').textContent, 'MC');
+  page.done();
+});
+
+test('profile: guest dashboard avoids fabricated metrics and preserves Personal details', async () => {
+  const page = await openPage('pages/profile.html');
+  assert.match(page.text(), /dashboard is available after signing in/i);
+  assert.equal(page.$('.public-profile-page'), null);
+  assert.equal(page.$('[data-profile-share]'), null);
+  assert.ok(page.$('#profile-details'), 'guest Personal details remain editable');
+  assert.ok(page.$('[data-profile-form]'), 'guest preferences remain available');
+  page.done();
+});
+
+test('profile: owner dashboard load errors preserve settings and privacy controls', async () => {
+  const session = { user: { id: 'user-owner-dashboard-error', email: 'student@example.com' } };
+  const client = createSessionClient(session);
+  client.rpc = async (name) => name === 'load_public_profile'
+    ? { data: null, error: new Error('Profile RPC failed') }
+    : { data: [], error: null };
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => client }
+  });
+  const dashboardError = page.$('[data-profile-dashboard-error]');
+  assert.ok(dashboardError, 'dashboard load failure is visible');
+  assert.match(dashboardError.textContent, /could not load your profile dashboard/i);
+  assert.ok(page.$('#profile-details'), 'Personal details remain editable after the dashboard error');
+  assert.ok(page.$('[data-profile-visibility-form]'), 'privacy controls remain available after the dashboard error');
+  page.done(['Could not load the owner profile dashboard']);
+});
+
+test('profile: owner dashboard handles a missing profile link without an RPC request', async () => {
+  const session = { user: { id: 'user-owner-dashboard-no-handle', email: 'student@example.com' } };
+  const rpcCalls = [];
+  const client = createSessionClient(session);
+  const originalFrom = client.from.bind(client);
+  client.from = (table) => {
+    const query = originalFrom(table);
+    if (table === 'profiles') {
+      const originalSingle = query.single;
+      query.single = async () => {
+        const result = await originalSingle();
+        return { ...result, data: { ...result.data, public_handle: null } };
+      };
+    }
+    return query;
+  };
+  client.rpc = async (name, args) => {
+    rpcCalls.push({ name, args });
+    return { data: [], error: null };
+  };
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => client }
+  });
+  assert.match(page.$('[data-profile-dashboard-error]').textContent, /profile link is not available/i);
+  assert.equal(rpcCalls.some(({ name }) => name === 'load_public_profile'), false);
+  assert.equal(page.$('[data-public-profile-url]'), null, 'missing handles do not produce an invalid profile URL');
+  assert.ok(page.$('#profile-details'));
+  page.done();
+});
+
 test('profile: compact identity header precedes preferences', async () => {
   const page = await openPage('pages/profile.html');
   const profile = page.$('.profile-page');

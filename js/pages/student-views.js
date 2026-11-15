@@ -29,7 +29,12 @@ function visibilitySettingsView(settings, blockedProfiles, error, blockedProfile
     visibilityOptions,
     settings[`${key}Visibility`]
   );
-  const publicUrl = `${pageUrl('public-profile')}?handle=${encodeURIComponent(settings.publicHandle)}`;
+  const publicUrl = /^[a-f0-9]{32}$/i.test(settings.publicHandle || '')
+    ? `${pageUrl('public-profile')}?handle=${encodeURIComponent(settings.publicHandle)}`
+    : '';
+  const profileLink = publicUrl
+    ? `<a data-public-profile-url href="${escape(publicUrl)}">${escape(publicUrl)}</a>`
+    : '<p class="form-error" role="alert">Your profile link is not available yet.</p>';
   const blockedMarkup = blockedProfilesError
     ? `<p class="form-error" role="alert">${escape(blockedProfilesError)}</p>`
     : blockedProfiles.length
@@ -59,22 +64,28 @@ function visibilitySettingsView(settings, blockedProfiles, error, blockedProfile
       <p data-profile-visibility-status class="form-message" role="status" hidden></p>
       <button class="button button-primary" type="submit">Save privacy settings</button>
     </form>
-    <div class="profile-share-link"><h3>Your profile link</h3><a data-public-profile-url href="${escape(publicUrl)}">${escape(publicUrl)}</a></div>
+    <div class="profile-share-link"><h3>Your profile link</h3>${profileLink}</div>
     <div class="profile-blocked-list"><h3>Blocked profiles</h3>${blockedMarkup}</div>
   </section>`;
 }
 
-export function profileView(user, state, visibilitySettings = null, blockedProfiles = [], profileSettingsError = '', blockedProfilesError = '') {
+export function profileView(user, state, visibilitySettings = null, blockedProfiles = [], profileSettingsError = '', blockedProfilesError = '', dashboard = null) {
   const signedIn = Boolean(user);
   const nickname = String(state.nickname || 'Fisher learner');
   const preferences = normalizeProfilePreferences(state.profilePreferences);
   const theme = state.theme === 'dark' ? 'dark' : 'light';
+  const dashboardMarkup = !signedIn
+    ? '<section class="profile-dashboard-message clay" data-profile-dashboard-guest><h2>Your learning dashboard</h2><p>Your dashboard is available after signing in.</p><a class="button button-primary" href="../pages/login.html">Sign in to sync</a></section>'
+    : dashboard?.error
+      ? `<section class="profile-dashboard-message clay" data-profile-dashboard-error role="alert"><h2>Your learning dashboard</h2><p>${escape(dashboard.error)}</p></section>`
+      : dashboard?.markup || '';
   return `<div class="profile-page">
   <section class="learning-page-intro">
     <p class="tag">${signedIn ? 'Synced account' : 'Guest profile'}</p>
     <h1>Your study profile</h1>
     <p>Set a few study preferences without crowding your learning pages.</p>
   </section>
+  ${dashboardMarkup}
   <section class="profile-layout">
     <article class="profile-summary clay">
       <div class="profile-id">
@@ -92,7 +103,7 @@ export function profileView(user, state, visibilitySettings = null, blockedProfi
         <h2>Make this study space yours</h2>
         <p>${signedIn ? 'Your nickname syncs to your private account; study preferences stay in this browser.' : 'Your nickname and study preferences stay in this browser.'}</p>
       </div>
-      <section class="profile-settings-group" aria-labelledby="profile-details-heading">
+      <section class="profile-settings-group" id="profile-details" aria-labelledby="profile-details-heading">
         <h3 id="profile-details-heading">Personal details</h3>
         <div class="profile-field-grid">
           <div class="field profile-field-wide">

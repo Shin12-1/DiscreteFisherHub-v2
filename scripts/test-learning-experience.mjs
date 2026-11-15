@@ -63,7 +63,7 @@ const resourcesByPage = {
   courses: ['data/topics.json', 'data/lessons/logic.json'],
   lessons: ['data/lessons/logic.json'],
   quizzes: ['data/topics.json', 'data/quizzes/logic.json'],
-  profile: [],
+  profile: ['data/topics.json', 'data/lessons/logic.json', 'data/quizzes/logic.json'],
   progress: ['data/topics.json', 'data/lessons/logic.json'],
   practice: ['data/quizzes/logic.json'],
   assessments: ['data/quizzes/logic.json'],

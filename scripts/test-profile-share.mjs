@@ -49,8 +49,10 @@ test('QR rendering encodes the stable profile URL locally', async () => {
 test('private owner profiles disable and reject profile sharing', async () => {
   const dom = new JSDOM('<!doctype html>');
   const oldDocument = globalThis.document;
+  const oldLocation = globalThis.location;
   try {
     globalThis.document = dom.window.document;
+    globalThis.location = dom.window.location;
     const view = renderPublicProfileView({ profile, isOwner: true, shareAllowed: false });
     const button = view.querySelector('[data-profile-share]');
     assert.ok(button);
@@ -64,6 +66,7 @@ test('private owner profiles disable and reject profile sharing', async () => {
     assert.match(view.querySelector('[data-profile-action-status]').textContent, /private/i);
   } finally {
     globalThis.document = oldDocument;
+    globalThis.location = oldLocation;
     dom.window.close();
   }
 });

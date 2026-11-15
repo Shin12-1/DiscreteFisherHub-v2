@@ -1,4 +1,5 @@
 import { escapeHtml as escape } from '../core/html.mjs';
+import { pageUrl } from '../core/router.js';
 
 function formatDuration(seconds, study = false) {
   if (!Number.isInteger(seconds) || seconds < 0) return '—';
@@ -59,7 +60,7 @@ function section(title, key, content) {
   return `<section class="public-profile-section clay" data-profile-${key}><h2>${title}</h2>${content}</section>`;
 }
 
-function sectionMarkup(profile, topics, lessons, quizzes) {
+function sectionMarkup(profile, topics, lessons, quizzes, isOwner, achievementTotal) {
   const data = profile.sections;
   let output = '';
   if (data.studyTime) {
@@ -76,7 +77,13 @@ function sectionMarkup(profile, topics, lessons, quizzes) {
     const cards = badges.length
       ? `<ul class="profile-badge-list">${badges.map(({ id, title }) => `<li data-badge="${escape(id)}"><span class="profile-badge-mark" aria-hidden="true">${escape(title.slice(0, 1))}</span><strong>${escape(title)}</strong></li>`).join('')}</ul>`
       : '<p class="profile-empty">No badges pinned yet.</p>';
-    output += section('Pinned achievements', 'badges', `${cards}<p class="profile-earned-count">${escape(badges.length ? '' : '')}${escape(data.badges.earnedCount)} earned</p>`);
+    const changePinned = isOwner
+      ? `<a class="profile-pinned-edit" data-profile-pinned-badges href="${escape(pageUrl('achievements'))}">Change pinned badges</a>`
+      : '';
+    const earnedCount = Number.isInteger(achievementTotal)
+      ? `${data.badges.earnedCount} of ${achievementTotal}`
+      : `${data.badges.earnedCount} earned`;
+    output += section('Pinned achievements', 'badges', `${changePinned}${cards}<p class="profile-earned-count">${escape(earnedCount)}</p>`);
   }
   if (data.mastery) {
     const topicsList = topicMastery(data.mastery, topics);
@@ -104,16 +111,18 @@ function sectionMarkup(profile, topics, lessons, quizzes) {
   return output;
 }
 
-function ownerActions(handle, shareAllowed) {
+function ownerActions(handle, shareAllowed, targets = {}) {
   const visitorUrl = `public-profile.html?handle=${encodeURIComponent(handle)}&preview=visitor`;
+  const editUrl = targets.edit || 'profile.html';
+  const visibilityUrl = targets.visibility || 'profile.html#profile-visibility';
   const shareButton = shareAllowed
     ? '<button class="button button-primary" type="button" data-profile-share>Share profile</button>'
     : '<button class="button button-primary" type="button" data-profile-share disabled aria-label="Profile is private; sharing is off">Profile is private</button>';
   return `<nav class="profile-owner-actions" data-owner-controls aria-label="Profile owner controls">
-    <a class="button button-secondary" href="profile.html">Edit profile</a>
+    <a class="button button-primary" href="${escape(editUrl)}">Edit profile</a>
     ${shareButton}
     <a class="button button-secondary" href="${visitorUrl}" data-profile-preview>Preview as visitor</a>
-    <a class="button button-secondary" href="profile.html#profile-visibility" data-profile-visibility>Manage visibility</a>
+    <a class="button button-secondary" href="${escape(visibilityUrl)}" data-profile-visibility>Manage visibility</a>
   </nav>`;
 }
 
@@ -142,22 +151,28 @@ export function renderPublicProfileView({
   shareAllowed = true,
   topics = [],
   lessons = [],
-  quizzes = []
+  quizzes = [],
+  ownerActionTargets = null,
+  headingLevel = 'h1',
+  achievementTotal
 } = {}) {
   if (!profile || typeof profile.nickname !== 'string') throw new TypeError('A public profile is required.');
   const nickname = profile.nickname.trim() || 'Fisher learner';
   const initials = nickname.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const avatarTier = Math.min(5, Math.floor((profile.level - 1) / 5) + 1);
-  const content = `<div class="public-profile-page">
+  const identityHeading = headingLevel === 'h2' ? 'h2' : 'h1';
+  const ownerActionsMarkup = isOwner ? ownerActions(profile.handle, shareAllowed, ownerActionTargets || {}) : visitorActions();
+  const embeddedOwner = isOwner && ownerActionTargets;
+  const content = `<div class="public-profile-page${embeddedOwner ? ' profile-owner-dashboard' : ''}">
     <header class="public-profile-header clay">
       <div class="public-profile-identity">
         <div class="profile-avatar profile-avatar-tier-${avatarTier}" aria-hidden="true">${escape(initials)}</div>
-        <div><p class="tag">Learner profile · Level ${escape(profile.level)}</p><h1>${escape(nickname)}</h1>${profile.title ? `<p class="profile-title">${escape(profile.title)}</p>` : ''}<p class="profile-member-since">Member since ${escape(dateLabel(profile.memberSince))}</p></div>
+        <div><p class="tag">Learner profile · Level ${escape(profile.level)}</p><${identityHeading}>${escape(nickname)}</${identityHeading}>${profile.title ? `<p class="profile-title">${escape(profile.title)}</p>` : ''}<p class="profile-member-since">Member since ${escape(dateLabel(profile.memberSince))}</p></div>
       </div>
-      ${isOwner ? ownerActions(profile.handle, shareAllowed) : visitorActions()}
+      ${ownerActionsMarkup}
       <p class="form-message" data-profile-action-status role="status" hidden></p>
     </header>
-    <div class="public-profile-sections">${sectionMarkup(profile, topics, lessons, quizzes)}</div>
+    <div class="public-profile-sections">${sectionMarkup(profile, topics, lessons, quizzes, isOwner, achievementTotal)}</div>
   </div>`;
   const wrapper = document.createElement('div');
   wrapper.innerHTML = content;
