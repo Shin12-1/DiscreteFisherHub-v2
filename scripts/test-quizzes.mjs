@@ -11,6 +11,10 @@ const bank = JSON.parse(await readFile(new URL('../data/quizzes/logic.json', imp
 assert.doesNotThrow(() => validateQuizBank(bank, logic.lessons));
 assert.equal(bank.quizzes.length, 3);
 assert.ok(bank.quizzes.every((quiz) => quiz.questions.length === 5));
+assert.deepEqual(
+  bank.quizzes.flatMap((quiz) => quiz.questions).find((question) => question.id === 'equivalence-de-morgan').tags,
+  ['de-morgan']
+);
 
 const invalidLessonBank = structuredClone(bank);
 invalidLessonBank.quizzes[0].lessonId = 'unknown-lesson';
@@ -19,6 +23,10 @@ assert.throws(() => validateQuizBank(invalidLessonBank, logic.lessons), /lesson/
 const duplicateQuestionBank = structuredClone(bank);
 duplicateQuestionBank.quizzes[1].questions[0].id = duplicateQuestionBank.quizzes[0].questions[0].id;
 assert.throws(() => validateQuizBank(duplicateQuestionBank, logic.lessons), /unique/i);
+
+const invalidTagsBank = structuredClone(bank);
+invalidTagsBank.quizzes[0].questions[0].tags = [''];
+assert.throws(() => validateQuizBank(invalidTagsBank, logic.lessons), /tags/i);
 
 const questions = [
   { id: 'one', answerIndex: 2 },

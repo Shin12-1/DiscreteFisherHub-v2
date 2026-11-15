@@ -10,7 +10,7 @@
   "scripts": {
     "serve": "python scripts/serve.py",
     "lint": "eslint .",
-    "test": "node scripts/validate-data.mjs && node scripts/test-quizzes.mjs && node scripts/test-learning-experience.mjs && node scripts/test-widget.mjs && node scripts/test-app-smoke.mjs",
+    "test": "node scripts/validate-data.mjs && node scripts/test-quizzes.mjs && node scripts/test-achievements.mjs && node scripts/test-study-time.mjs && node scripts/test-notifications.mjs && node scripts/test-learning-experience.mjs && node scripts/test-widget.mjs && node scripts/test-app-smoke.mjs",
     "check": "npm run lint && npm test"
   },
   "devDependencies": {

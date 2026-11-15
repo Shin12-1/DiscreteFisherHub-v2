@@ -71,6 +71,7 @@
         },
         {
           "id": "equivalence-de-morgan",
+          "tags": ["de-morgan"],
           "prompt": "What is equivalent to NOT (p AND q)?",
           "choices": ["NOT p AND NOT q", "p OR q", "NOT p OR NOT q", "p AND NOT q"],
           "answerIndex": 2,

@@ -1,0 +1,299 @@
+{
+  "achievements": [
+    {
+      "id": "first-step",
+      "title": "First Step",
+      "description": "Open your first lesson.",
+      "category": "Getting started",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "event-count",
+        "event": "lesson-opened",
+        "target": 1
+      }
+    },
+    {
+      "id": "name-tag",
+      "title": "Name Tag",
+      "description": "Set a nickname for your profile.",
+      "category": "Getting started",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "event-count",
+        "event": "nickname-changed",
+        "target": 1
+      }
+    },
+    {
+      "id": "explorer",
+      "title": "Explorer",
+      "description": "Visit every page in the sidebar.",
+      "category": "Getting started",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "all-sidebar-pages",
+        "pages": [
+          "dashboard",
+          "courses",
+          "lessons",
+          "flashcards",
+          "practice",
+          "quizzes",
+          "assessments",
+          "progress",
+          "profile"
+        ]
+      }
+    },
+    {
+      "id": "logic-rookie",
+      "title": "Logic Rookie",
+      "description": "Complete the Propositions and Connectives lesson.",
+      "category": "Lessons",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "lesson-completed",
+        "lessonId": "logic-propositions"
+      },
+      "rewards": {
+        "title": "Logic Apprentice"
+      }
+    },
+    {
+      "id": "table-builder",
+      "title": "Table Builder",
+      "description": "Complete the Truth Tables and Equivalences lesson.",
+      "category": "Lessons",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "lesson-completed",
+        "lessonId": "logic-truth-tables"
+      }
+    },
+    {
+      "id": "course-complete",
+      "title": "Course Complete",
+      "description": "Complete every published lesson in the Logic topic.",
+      "category": "Lessons",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "topic-completed",
+        "topicId": "logic"
+      },
+      "rewards": {
+        "title": "Proof Master"
+      }
+    },
+    {
+      "id": "warm-up",
+      "title": "Warm Up",
+      "description": "Study on 3 consecutive Manila calendar days.",
+      "category": "Streaks",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "streak-days",
+        "days": 3
+      }
+    },
+    {
+      "id": "on-fire",
+      "title": "On Fire",
+      "description": "Study on 7 consecutive Manila calendar days.",
+      "category": "Streaks",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "streak-days",
+        "days": 7
+      }
+    },
+    {
+      "id": "unstoppable",
+      "title": "Unstoppable",
+      "description": "Study on 30 consecutive Manila calendar days.",
+      "category": "Streaks",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "streak-days",
+        "days": 30
+      }
+    },
+    {
+      "id": "perfect-score",
+      "title": "Perfect Score",
+      "description": "Earn 5 out of 5 on a quiz.",
+      "category": "Quizzes and practice",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "perfect-quiz-score",
+        "score": 5,
+        "total": 5
+      }
+    },
+    {
+      "id": "comeback",
+      "title": "Comeback",
+      "description": "Improve a previous score on the same quiz.",
+      "category": "Quizzes and practice",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "quiz-score-improved"
+      }
+    },
+    {
+      "id": "sharp-mind",
+      "title": "Sharp Mind",
+      "description": "Score at least 80% on 3 consecutive quiz attempts.",
+      "category": "Quizzes and practice",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "consecutive-quiz-threshold",
+        "attempts": 3,
+        "minPercent": 80
+      }
+    },
+    {
+      "id": "practice-makes-perfect",
+      "title": "Practice Makes Perfect",
+      "description": "Submit 50 practice-question answers.",
+      "category": "Quizzes and practice",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "practice-answers",
+        "count": 50
+      }
+    },
+    {
+      "id": "memory-workout",
+      "title": "Memory Workout",
+      "description": "Review every card in one deck during a study session.",
+      "category": "Flashcards",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "deck-reviewed"
+      }
+    },
+    {
+      "id": "card-shark",
+      "title": "Card Shark",
+      "description": "Review 100 cards, counting each card at most once per session.",
+      "category": "Flashcards",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "cards-reviewed",
+        "count": 100
+      }
+    },
+    {
+      "id": "checkpoint-cleared",
+      "title": "Checkpoint Cleared",
+      "description": "Complete a checkpoint.",
+      "category": "Assessments",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "checkpoint-completed"
+      }
+    },
+    {
+      "id": "growth",
+      "title": "Growth",
+      "description": "Beat your previous score on the same checkpoint.",
+      "category": "Assessments",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "checkpoint-score-improved"
+      }
+    },
+    {
+      "id": "night-owl",
+      "title": "Night Owl",
+      "description": "Study between 10:00 PM and midnight Manila time.",
+      "category": "Fun and hidden",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "study-local-hour",
+        "startHour": 22,
+        "endHourExclusive": 24,
+        "timeZone": "Asia/Manila"
+      }
+    },
+    {
+      "id": "early-bird",
+      "title": "Early Bird",
+      "description": "Study before 7:00 AM Manila time.",
+      "category": "Fun and hidden",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "study-local-hour",
+        "startHour": 0,
+        "endHourExclusive": 7,
+        "timeZone": "Asia/Manila"
+      }
+    },
+    {
+      "id": "de-morgans-disciple",
+      "title": "De Morgan's Disciple",
+      "description": "Answer 5 De Morgan questions correctly.",
+      "category": "Fun and hidden",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "de-morgan-correct",
+        "count": 5
+      }
+    },
+    {
+      "id": "curious-mind",
+      "title": "Curious Mind",
+      "description": "Open the glossary 10 times.",
+      "category": "Fun and hidden",
+      "hidden": false,
+      "available": false,
+      "criteria": {
+        "ruleKey": "glossary-opens",
+        "count": 10
+      }
+    },
+    {
+      "id": "secret",
+      "title": "Secret",
+      "description": "Earn a perfect score on every published Logic quiz.",
+      "category": "Fun and hidden",
+      "hidden": true,
+      "available": true,
+      "criteria": {
+        "ruleKey": "perfect-every-published-quiz",
+        "topicId": "logic"
+      }
+    },
+    {
+      "id": "weekly-scholar",
+      "title": "Weekly Scholar",
+      "description": "Complete this week's rotating study challenge.",
+      "category": "Weekly challenges",
+      "hidden": false,
+      "available": true,
+      "criteria": {
+        "ruleKey": "weekly-challenge"
+      }
+    }
+  ]
+}

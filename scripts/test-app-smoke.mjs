@@ -128,8 +128,12 @@ function createSessionClient(session, authOverrides = {}, callbackEvent = null, 
       const chain = {
         select: () => chain,
         eq: () => chain,
+        order: () => chain,
+        limit: () => Promise.resolve(result),
+        is: () => Promise.resolve({ ...result, count: 0 }),
         single: () => Promise.resolve(result),
         update: (payload) => { databaseCalls.push({ table, payload }); return chain; },
+        insert: async () => ({ error: null }),
         upsert: async () => ({ error: null }),
         then: (resolve, reject) => Promise.resolve(result).then(resolve, reject)
       };
@@ -1033,6 +1037,26 @@ test('practice: a single lesson set runs too', async () => {
   page.done();
 });
 
+test('practice: answered De Morgan questions carry their achievement tag', async () => {
+  const page = await openPage('pages/practice.html');
+  const bank = JSON.parse(await readFile(resolve(root, 'data/quizzes/logic.json'), 'utf8'));
+  const targetIndex = bank.quizzes.find((quiz) => quiz.id === 'logic-truth-tables').questions
+    .findIndex((question) => question.id === 'equivalence-de-morgan');
+  page.click('[data-start-practice="logic-truth-tables"]');
+  for (let question = 0; question <= targetIndex; question += 1) {
+    page.choose('[data-learning-answer]');
+    page.click('[data-learning-check]');
+    if (question < targetIndex) page.click('[data-learning-next]');
+  }
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.events?.some((event) => event.data.questionId === 'equivalence-de-morgan'),
+    'the De Morgan practice event'
+  );
+  const event = page.storage('dfh:learner-events:guest').events.find((item) => item.data.questionId === 'equivalence-de-morgan');
+  assert.deepEqual(event.data.tags, ['de-morgan']);
+  page.done();
+});
+
 test('quizzes: catalogue leads with lesson quizzes and keeps history below', async () => {
   const page = await openPage('pages/quizzes.html');
   const catalogue = page.$('.quiz-catalogue');
@@ -1078,6 +1102,10 @@ test('assessment: checkpoint submits and shows a review', async () => {
   }
   assert.ok(page.$('#assessment-results-heading'), 'assessment results heading');
   assert.match(page.text(), /Your XP and lesson progress have not changed/);
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.completions?.some((completion) => completion.type === 'checkpoint'),
+    'checkpoint completion to persist'
+  );
   page.click('[data-restart-assessment]');
   assert.match(page.text(), /Question 1 of 15/);
   page.done();
@@ -1094,6 +1122,10 @@ test('quizzes: a quiz saves an attempt to guest history', async () => {
   await page.until(() => /Attempt saved/.test(page.text()), 'the attempt to be saved');
   assert.equal(page.storage('dfh:quiz-attempts').length, 1);
   assert.equal(page.storage('dfh:quiz-attempts')[0].mode, 'logic-truth-tables');
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.completions?.some((completion) => completion.type === 'quiz'),
+    'quiz completion to persist'
+  );
   page.done();
 });
 
@@ -1114,6 +1146,7 @@ test('quizzes: missed question IDs stay local when signed-in history cannot save
         eq: () => chain,
         order: () => chain,
         limit: () => chain,
+        is: () => Promise.resolve({ ...result, count: 0 }),
         single: () => Promise.resolve(inserting
           ? { data: null, error: new Error('network unavailable') }
           : result),
@@ -1186,8 +1219,46 @@ test('flashcards: reveal and move through the deck', async () => {
   );
   const flashcardActivity = page.storage('dfh:dashboard-activity:guest');
   assert.deepEqual(flashcardActivity.today.flashcardIds, [cardId], 'revealing a card repeatedly counts once toward the daily goal');
+  assert.equal(
+    page.storage('dfh:learner-events:guest').events.filter((event) => event.type === 'flashcard-reviewed' && event.data.cardId === cardId).length,
+    1,
+    'a card is counted once per study session'
+  );
   page.click('[data-flashcard-next]');
   assert.match(page.text(), /Card 2 of 15/);
+  page.done();
+});
+
+test('study tracking: page visit persists and pagehide flushes active time', async () => {
+  const page = await openPage('pages/lessons.html');
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.events?.some((event) => event.type === 'page-visited' && event.data.page === 'lessons'),
+    'lesson page visit to persist'
+  );
+  await sleep(1100);
+  page.window.dispatchEvent(new page.window.Event('pagehide'));
+  await page.until(
+    () => page.storage('dfh:study-sessions:guest')?.length === 1,
+    'study session to flush on pagehide'
+  );
+  assert.ok(page.storage('dfh:study-sessions:guest')[0].durationSeconds > 0);
+  page.done();
+});
+
+test('notifications: guests see and can dismiss a new achievement update', async () => {
+  const page = await openPage('pages/lessons.html');
+  await page.until(
+    () => page.storage('dfh:guest-achievements')?.notifications?.some((notification) => notification.achievementId === 'first-step'),
+    'the first lesson achievement notification'
+  );
+  assert.ok(page.$('[data-achievement-feedback]'), 'an immediate achievement dialog is shown');
+  page.click('[data-close-achievement]');
+  page.click('[data-notifications-toggle]');
+  await page.until(() => !page.$('#notification-panel').hidden, 'the notification history to open');
+  assert.match(page.$('[data-notification-list]').textContent, /First Step/);
+  page.click('[data-notification-read]');
+  await page.until(() => page.$('[data-notification-count]').hidden, 'the unread count to clear');
+  assert.equal(page.storage('dfh:guest-achievements').notifications[0].readAt !== null, true);
   page.done();
 });
 
@@ -1222,7 +1293,20 @@ test('lesson: completing a lesson awards XP once', async () => {
     () => page.storage('dfh:dashboard-activity:guest')?.today.lessonIds.length === 1,
     'lesson completion activity'
   );
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.completions?.length === 1,
+    'one timed lesson completion'
+  );
   assert.equal(page.storage('dfh:dashboard-activity:guest').recentEvents[0].id, 'logic-truth-tables');
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.completions?.some((completion) => completion.type === 'lesson' && completion.activityId === 'logic-truth-tables'),
+    'timed lesson completion to persist'
+  );
+  page.click('[data-complete]');
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.completions?.length === 1,
+    'repeat completion click to stay idempotent'
+  );
   assert.match(page.$('[data-complete]').textContent, /Completed/);
   page.done();
 });
@@ -1252,6 +1336,10 @@ test('profile: saving a nickname updates the page', async () => {
   page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
   assert.equal(page.storage('dfh:learner-state').nickname, 'Kian Reyes');
+  await page.until(
+    () => page.storage('dfh:learner-events:guest')?.events?.some((event) => event.type === 'nickname-changed'),
+    'nickname change to be recorded'
+  );
   page.done();
 });
 
@@ -1395,10 +1483,10 @@ test('dashboard: daily goal selection persists locally', async () => {
 
 test('signed-in dashboard fills the leaderboard after the first paint', async () => {
   const session = { user: { id: 'user-1', email: 'student@example.com' } };
-  const rows = { profiles: { nickname: 'Kian', xp: 100, level: 1, streak: 2, last_active: '2026-11-12' }, lesson_progress: [{ lesson_id: 'logic-propositions' }, { lesson_id: 'logic-truth-tables' }], quiz_attempts: [], leaderboard: [{ nickname: 'Ana', xp: 150 }, { nickname: 'Kian', xp: 100 }] };
+  const rows = { profiles: { nickname: 'Kian', xp: 100, level: 1, streak: 2, last_active: '2026-11-12' }, lesson_progress: [{ lesson_id: 'logic-propositions' }, { lesson_id: 'logic-truth-tables' }], quiz_attempts: [], leaderboard: [{ nickname: 'Ana', xp: 150 }, { nickname: 'Kian', xp: 100 }], notifications: [] };
   const query = (table) => {
-    const result = { data: rows[table], error: null };
-    const chain = { select: () => chain, eq: () => chain, order: () => chain, limit: () => chain, single: () => Promise.resolve(result), upsert: () => Promise.resolve({ error: null }), update: () => chain, then: (resolve, reject) => Promise.resolve(result).then(resolve, reject) };
+    const result = { data: rows[table], error: null, count: 0 };
+    const chain = { select: () => chain, eq: () => chain, order: () => chain, limit: () => chain, is: () => Promise.resolve(result), single: () => Promise.resolve(result), insert: () => Promise.resolve({ error: null }), upsert: () => Promise.resolve({ error: null }), update: () => chain, then: (resolve, reject) => Promise.resolve(result).then(resolve, reject) };
     return chain;
   };
   const client = { auth: { getSession: async () => ({ data: { session }, error: null }) }, from: query };

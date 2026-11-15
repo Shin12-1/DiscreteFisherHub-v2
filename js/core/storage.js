@@ -13,3 +13,4 @@ export const storage = {
 export function useStorageAdapter(adapter) { activeAdapter = adapter; }
 export function useLocalStorage() { activeAdapter = localAdapter; }
 export function getLocalStorageAdapter() { return localAdapter; }
+export function getStorageAdapter() { return activeAdapter; }

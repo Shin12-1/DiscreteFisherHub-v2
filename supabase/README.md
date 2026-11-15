@@ -3,7 +3,7 @@
 ## Supabase
 
 1. In the Supabase dashboard, open **SQL Editor**, create a query, paste `supabase/schema.sql`, and run it once on an empty project. This schema is not an idempotent migration; do not rerun it on a database where the tables or triggers already exist.
-2. Confirm `profiles`, `lesson_progress`, and `quiz_attempts` appear in **Table Editor** with RLS enabled, and that the `leaderboard` view exists.
+2. Confirm `profiles`, learner-event tables, achievement/notification tables, and projection tables appear in **Table Editor** with RLS enabled, and that the `leaderboard` and `profile_public_projection` views exist.
 3. Under **Authentication → Sign In / Providers**, enable **Email**, require email confirmation, and enable **Google**. Create a Google OAuth client in Google Cloud, add `http://localhost:5173` and `https://discretefisherhub-v2.vercel.app` as authorized JavaScript origins, and add the callback URI shown in the Supabase Google provider settings as an authorized redirect URI. Store the Google client ID and secret only in the Supabase provider settings; never put the secret in this repository.
 4. Under **Authentication → URL Configuration**, set the Site URL to `https://discretefisherhub-v2.vercel.app`. Add these allowed redirect URLs:
    - `https://discretefisherhub-v2.vercel.app/**`
@@ -37,4 +37,8 @@ The database stores the auth email in Supabase plus nickname and learning progre
 
 ## Optional migrations
 
-`supabase/migrations/` holds changes you can run later in the SQL Editor on an existing database (unlike `schema.sql`, they are safe to run once each, in order). Read the comment at the top of each file first.
+`supabase/migrations/` holds changes to run in order on an existing database. Read each file's comment first and run it once. A fresh install uses the full schema in `schema.sql`; do not run the optional migrations afterward.
+
+The profile/achievement migration adds the profile privacy settings, protected study records, achievement catalog and awards, notifications, reports, blocks, and privacy-filtered projections. It does not update the deployed project. To run its SQL access tests locally, start a local Supabase stack and run `npx supabase test db supabase/tests/profile_achievements_phase1.sql`. These tests use pgTAP; they never target the hosted project unless `--remote` is explicitly supplied.
+
+For a manual two-account smoke check, set one profile to **public**, one to **members**, then verify a signed-out browser sees only the public profile and a signed-in Hub account sees both. Confirm hidden sections are absent, reports and blocks stay private, and neither profile appears on the leaderboard until that learner opts in. Then opt in one account and verify the leaderboard shows only its nickname and XP.

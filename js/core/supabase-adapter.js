@@ -28,6 +28,49 @@ export class SupabaseAdapter {
     return this.get(key, value);
   }
 
+  async recordLearnerEvent(event) {
+    const { error } = await this.client.from('learning_events').insert({
+      user_id: this.user.id,
+      client_event_id: event.id,
+      study_session_id: event.studySessionId,
+      event_type: event.type,
+      event_data: event.data
+    });
+    if (error?.code === '23505') return { duplicate: true };
+    if (error) throw error;
+    return { duplicate: false };
+  }
+
+  async recordActivityCompletion(completion) {
+    const { error } = await this.client.from('activity_completions').insert({
+      user_id: this.user.id,
+      client_event_id: completion.id,
+      study_session_id: completion.studySessionId,
+      activity_type: completion.type,
+      activity_id: completion.activityId,
+      duration_seconds: completion.durationSeconds,
+      score: completion.score,
+      total: completion.total
+    });
+    if (error?.code === '23505') return { duplicate: true };
+    if (error) throw error;
+    return { duplicate: false };
+  }
+
+  async recordStudySession(session) {
+    const { error: insertError } = await this.client.from('study_sessions').insert({
+      user_id: this.user.id,
+      client_session_id: session.id,
+      started_at: session.startedAt
+    });
+    if (insertError && insertError.code !== '23505') throw insertError;
+    const { error } = await this.client.from('study_sessions')
+      .update({ duration_seconds: session.durationSeconds, ended_at: session.endedAt })
+      .eq('user_id', this.user.id)
+      .eq('client_session_id', session.id);
+    if (error) throw error;
+  }
+
   async remove() { return undefined; }
   async list() { return ['learner-state']; }
 }

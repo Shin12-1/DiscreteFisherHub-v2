@@ -1,0 +1,48 @@
+{
+  "challenges": [
+    {
+      "id": "weekly-lessons",
+      "title": "Lesson Sprint",
+      "description": "Complete 3 lessons this week.",
+      "ruleKey": "lesson-completions",
+      "target": 3,
+      "unit": "lessons",
+      "badgeId": "weekly-scholar",
+      "badgeTitle": "Weekly Scholar",
+      "badgeDescription": "Completed this week's study challenge."
+    },
+    {
+      "id": "weekly-quizzes",
+      "title": "Quiz Practice",
+      "description": "Complete 3 quizzes this week.",
+      "ruleKey": "quiz-completions",
+      "target": 3,
+      "unit": "quizzes",
+      "badgeId": "weekly-scholar",
+      "badgeTitle": "Weekly Scholar",
+      "badgeDescription": "Completed this week's study challenge."
+    },
+    {
+      "id": "weekly-practice",
+      "title": "Practice Streak",
+      "description": "Answer 20 practice questions this week.",
+      "ruleKey": "practice-answers",
+      "target": 20,
+      "unit": "questions",
+      "badgeId": "weekly-scholar",
+      "badgeTitle": "Weekly Scholar",
+      "badgeDescription": "Completed this week's study challenge."
+    },
+    {
+      "id": "weekly-flashcards",
+      "title": "Flashcard Review",
+      "description": "Review 25 flashcards this week.",
+      "ruleKey": "flashcards-reviewed",
+      "target": 25,
+      "unit": "cards",
+      "badgeId": "weekly-scholar",
+      "badgeTitle": "Weekly Scholar",
+      "badgeDescription": "Completed this week's study challenge."
+    }
+  ]
+}

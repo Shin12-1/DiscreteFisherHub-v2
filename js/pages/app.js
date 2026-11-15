@@ -6,18 +6,166 @@ import { getCurrentUser, getLeaderboard, getQuizAttempts, initialiseAuth, record
 import { loadPageData } from '../core/page-data.mjs';
 import { validateNickname } from '../core/auth-validation.mjs';
 import { normalizeProfilePreferences } from '../core/profile-preferences.mjs';
-import { getLocalStorageAdapter } from '../core/storage.js';
+import { getLocalStorageAdapter, getStorageAdapter } from '../core/storage.js';
 import { getDashboardActivity, recordDashboardActivity, setDashboardGoal } from '../core/dashboard-activity.mjs';
 import { renderPageSkeleton } from '../components/loading.js';
 import { escapeHtml as escape } from '../core/html.mjs';
 import { mountTruthWidget } from '../components/truth-widget.mjs';
+import { createStudyTimer } from '../core/study-time.mjs';
+import { recordActivityCompletion, recordLearnerEvent, recordStudySession, syncPendingStudySessions } from '../core/learner-events.mjs';
+import {
+  countUnreadNotifications,
+  evaluateAndSaveGuestAchievements,
+  listGuestNotifications,
+  listNotifications,
+  markGuestNotificationRead,
+  markNotificationRead
+} from '../core/notifications.mjs';
 
 let quizApi;
 let practiceApi;
+let studyTimer;
+let studySessionId;
+let studyStartedAt;
+let lastSavedStudySeconds = 0;
+let studyFlushQueue = Promise.resolve();
+let lessonStartedAtSeconds;
+let pageVisitRecorded = false;
+let lessonOpenedRecorded = false;
+let achievementCatalog;
+let weeklyChallengeCatalog;
+let notificationOwnerId;
+const notificationState = { notifications: [], unreadCount: 0, loaded: false, error: '' };
+let achievementFeedbackQueue = [];
 const base = location.pathname.includes('/pages/') ? '../' : '';
 const load = async (path) => { const response = await fetch(base + path); if (!response.ok) throw new Error(`Could not load ${path}`); return response.json(); };
 const app = document.querySelector('#app');
 const page = document.body.dataset.page;
+
+function notificationListMarkup() {
+  if (notificationState.error) {
+    return `<p class="form-error" role="alert">${escape(notificationState.error)} <button class="notification-mark-read" data-notifications-retry type="button">Try again</button></p>`;
+  }
+  if (!notificationState.loaded) return '<p>Loading notifications…</p>';
+  if (!notificationState.notifications.length) return '<p>You’re all caught up. Achievement updates will appear here.</p>';
+  return `<ol>${notificationState.notifications.map((notification) => {
+    const date = new Date(notification.unlockedAt);
+    const dateText = Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString();
+    return `<li class="notification-item ${notification.readAt ? '' : 'notification-item-unread'}"><h3>${escape(notification.title)}</h3><time datetime="${escape(notification.unlockedAt)}">${escape(dateText)}</time><p>${escape(notification.body)}</p>${notification.readAt ? '<span>Read</span>' : `<button class="notification-mark-read" data-notification-read="${escape(notification.id)}" type="button">Mark as read</button>`}</li>`;
+  }).join('')}</ol>`;
+}
+
+function paintNotificationState() {
+  const toggle = app.querySelector('[data-notifications-toggle]');
+  const count = app.querySelector('[data-notification-count]');
+  const list = app.querySelector('[data-notification-list]');
+  if (toggle) toggle.setAttribute('aria-label', `Notifications${notificationState.unreadCount ? `, ${notificationState.unreadCount} unread` : ''}`);
+  if (count) {
+    count.textContent = notificationState.unreadCount > 99 ? '99+' : String(notificationState.unreadCount);
+    count.hidden = notificationState.unreadCount === 0;
+  }
+  if (list) {
+    list.innerHTML = notificationListMarkup();
+    list.setAttribute('aria-busy', 'false');
+  }
+}
+
+function renderShell(content, theme) {
+  app.innerHTML = shell(page, content, theme, notificationState.unreadCount);
+  paintNotificationState();
+}
+
+function getNotificationClient() {
+  return getActivityAdapter()?.client || null;
+}
+
+async function refreshNotificationState(announce = false) {
+  if (!achievementCatalog || !weeklyChallengeCatalog) return;
+  const localAdapter = getLocalStorageAdapter();
+  const userId = getCurrentUser()?.id || null;
+  const client = getNotificationClient();
+  try {
+    if (!userId) {
+      await evaluateAndSaveGuestAchievements({
+        localAdapter,
+        catalog: achievementCatalog,
+        challengeCatalog: weeklyChallengeCatalog
+      });
+    }
+    const [notifications, unreadCount] = await Promise.all([
+      userId ? listNotifications({ client, limit: 50 }) : listGuestNotifications({ localAdapter, limit: 50 }),
+      countUnreadNotifications(userId ? { client } : { localAdapter })
+    ]);
+    const existingIds = new Set(notificationState.notifications.map(({ id }) => id));
+    const shouldAnnounce = announce && notificationState.loaded;
+    notificationState.notifications = notifications;
+    notificationState.unreadCount = unreadCount;
+    notificationState.error = '';
+    notificationState.loaded = true;
+    paintNotificationState();
+    if (shouldAnnounce) {
+      for (const notification of notifications) {
+        if (!existingIds.has(notification.id)) showAchievementUnlock(notification);
+      }
+    }
+  } catch (error) {
+    console.error('Could not load achievement notifications.', error);
+    notificationState.error = 'Notifications could not be loaded.';
+    notificationState.loaded = true;
+    paintNotificationState();
+  }
+}
+
+async function setNotificationRead(notificationId) {
+  const userId = getCurrentUser()?.id;
+  try {
+    if (userId) {
+      await markNotificationRead({ client: getNotificationClient(), notificationId });
+    } else {
+      await markGuestNotificationRead({ localAdapter: getLocalStorageAdapter(), notificationId });
+    }
+    await refreshNotificationState();
+  } catch (error) {
+    console.error('Could not mark the notification as read.', error);
+    notificationState.error = 'This notification could not be updated.';
+    paintNotificationState();
+  }
+}
+
+function setNotificationPanelOpen(open, restoreFocus = false) {
+  const button = app.querySelector('[data-notifications-toggle]');
+  const panel = app.querySelector('#notification-panel');
+  if (!button || !panel) return;
+  button.setAttribute('aria-expanded', String(open));
+  panel.hidden = !open;
+  if (open) {
+    panel.querySelector('[data-notifications-close]')?.focus();
+  } else if (restoreFocus) {
+    button.focus();
+  }
+}
+
+function showAchievementUnlock(notification) {
+  if (notification) achievementFeedbackQueue.push(notification);
+  if (document.querySelector('[data-achievement-feedback]') || !achievementFeedbackQueue.length) return;
+  const next = achievementFeedbackQueue.shift();
+  const overlay = document.createElement('div');
+  overlay.className = 'level-up achievement-unlock';
+  overlay.dataset.achievementFeedback = '';
+  overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="achievement-unlock-title"><p class="tag">Achievement unlocked</p><h2 id="achievement-unlock-title">${escape(next.title)}</h2><p>${escape(next.body)}</p>${next.rewardTitle ? `<p class="achievement-reward">New title: <strong>${escape(next.rewardTitle)}</strong></p>` : ''}<button class="button button-secondary" data-close-achievement type="button">Keep learning</button></div>`;
+  document.body.append(overlay);
+  const close = () => {
+    overlay.remove();
+    showAchievementUnlock();
+  };
+  overlay.querySelector('button').focus();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay || event.target.matches('[data-close-achievement]')) close();
+  });
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') close();
+  });
+}
 
 function recordDashboardEvent(event, errorMessage) {
   return recordDashboardActivity({
@@ -25,6 +173,116 @@ function recordDashboardEvent(event, errorMessage) {
     userId: getCurrentUser()?.id || null,
     event
   }).catch((error) => console.error(errorMessage, error));
+}
+
+function getActivityAdapter() {
+  const adapter = getStorageAdapter();
+  return adapter.kind === 'supabase' ? adapter : null;
+}
+
+async function recordLearnerActivity(event, errorMessage) {
+  try {
+    const result = await recordLearnerEvent({
+    localAdapter: getLocalStorageAdapter(),
+    client: getActivityAdapter(),
+    userId: getCurrentUser()?.id || null,
+    event
+    });
+    if (!result.duplicate) await refreshNotificationState(true);
+    return result;
+  } catch (error) {
+    console.error(errorMessage, error);
+  }
+}
+
+async function recordActivityResult(completion, errorMessage) {
+  try {
+    const result = await recordActivityCompletion({
+    localAdapter: getLocalStorageAdapter(),
+    client: getActivityAdapter(),
+    userId: getCurrentUser()?.id || null,
+    completion
+    });
+    if (!result.duplicate) await refreshNotificationState(true);
+    return result;
+  } catch (error) {
+    console.error(errorMessage, error);
+  }
+}
+
+function activeStudySeconds() {
+  if (!studyTimer) return 0;
+  const seconds = studyTimer.stop();
+  studyTimer.start();
+  return seconds;
+}
+
+function activityDuration(startedAtSeconds) {
+  return Math.max(1, activeStudySeconds() - startedAtSeconds);
+}
+
+async function flushStudySession(final = false) {
+  if (!studyTimer) return;
+  const durationSeconds = studyTimer.stop();
+  if (!final) studyTimer.start();
+  if (durationSeconds <= 0 || (durationSeconds <= lastSavedStudySeconds && !final)) return;
+  const save = async () => {
+    if (durationSeconds <= lastSavedStudySeconds && !final) return;
+    try {
+      await recordStudySession({
+        localAdapter: getLocalStorageAdapter(),
+        client: getActivityAdapter(),
+        userId: getCurrentUser()?.id || null,
+        session: {
+          id: studySessionId,
+          startedAt: studyStartedAt,
+          endedAt: new Date().toISOString(),
+          durationSeconds
+        }
+      });
+      lastSavedStudySeconds = Math.max(lastSavedStudySeconds, durationSeconds);
+      await refreshNotificationState(true);
+    } catch (error) {
+      console.error('Could not save active study time.', error);
+    }
+  };
+  studyFlushQueue = studyFlushQueue.then(save, save);
+  await studyFlushQueue;
+}
+
+function startStudyTracking() {
+  if (studyTimer) return;
+  studyTimer = createStudyTimer({ now: () => performance.now() });
+  studySessionId = crypto.randomUUID();
+  studyStartedAt = new Date().toISOString();
+  studyTimer.setVisible(document.visibilityState === 'visible');
+  studyTimer.start();
+  retryPendingStudySessions();
+  const markActivity = () => studyTimer.activity();
+  document.addEventListener('pointerdown', markActivity, { passive: true });
+  document.addEventListener('keydown', markActivity);
+  document.addEventListener('touchstart', markActivity, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    const visible = document.visibilityState === 'visible';
+    studyTimer.setVisible(visible);
+    if (!visible) void flushStudySession();
+  });
+  window.addEventListener('pagehide', () => { void flushStudySession(true); }, { once: true });
+  window.addEventListener('online', retryPendingStudySessions);
+  window.setInterval(() => { void flushStudySession(); }, 15_000);
+}
+
+function retryPendingStudySessions() {
+  const userId = getCurrentUser()?.id;
+  if (!userId) return;
+  void syncPendingStudySessions({
+    localAdapter: getLocalStorageAdapter(),
+    client: getActivityAdapter(),
+    userId
+  }).then((synced) => {
+    if (synced) return refreshNotificationState(true);
+    return undefined;
+  }).catch((error) => console.error('Could not sync pending study time.', error));
 }
 
 async function loadPageViews(pageName) {
@@ -49,6 +307,26 @@ function closeMobileMore(restoreFocus = false) {
 }
 
 app.addEventListener('click', (event) => {
+  const notificationToggle = event.target.closest('[data-notifications-toggle]');
+  if (notificationToggle) {
+    const open = notificationToggle.getAttribute('aria-expanded') !== 'true';
+    setNotificationPanelOpen(open);
+    if (open) void refreshNotificationState();
+    return;
+  }
+  if (event.target.closest('[data-notifications-close]')) {
+    setNotificationPanelOpen(false, true);
+    return;
+  }
+  const markRead = event.target.closest('[data-notification-read]');
+  if (markRead) {
+    void setNotificationRead(markRead.dataset.notificationRead);
+    return;
+  }
+  if (event.target.closest('[data-notifications-retry]')) {
+    void refreshNotificationState();
+    return;
+  }
   const button = event.target.closest('[data-mobile-more-toggle]');
   if (button) {
     const menu = app.querySelector('#mobile-more-menu');
@@ -61,12 +339,16 @@ app.addEventListener('click', (event) => {
   if (event.target.closest('#mobile-more-menu a')) closeMobileMore();
 });
 app.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && app.querySelector('[data-notifications-toggle][aria-expanded="true"]')) {
+    setNotificationPanelOpen(false, true);
+  }
   if (event.key === 'Escape' && app.querySelector('[data-mobile-more-toggle][aria-expanded="true"]')) {
     closeMobileMore(true);
   }
 });
 document.addEventListener('click', (event) => {
   if (!app.contains(event.target)) closeMobileMore();
+  if (!app.contains(event.target)) setNotificationPanelOpen(false);
 });
 
 function quizLobby(topics, bank, attempts, historyError) {
@@ -123,7 +405,9 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
     index:0,
     checked:false,
     phase:'question',
-    result:null
+    result:null,
+    startedAtSeconds:activeStudySeconds(),
+    completionRecorded:false
   };
   let currentTheme = theme;
 
@@ -148,7 +432,7 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
       content = `<section class="quiz-question-panel clay"><div class="quiz-session-heading"><a href="${pageUrl(page)}" data-exit-learning>← ${kind === 'assessment' ? 'Assessments' : 'Practice'}</a><span class="tag">${label}</span></div><p class="quiz-progress-label">Question ${session.index + 1} of ${session.questions.length}</p><progress class="quiz-progress" value="${session.index + 1}" max="${session.questions.length}" aria-label="Question progress"></progress><h1 id="learning-question-title" tabindex="-1">${escape(title)}</h1><p>${kind === 'assessment' ? 'Choose an answer, then continue. Explanations appear after you submit.' : 'Choose one answer and check it to see an explanation.'}</p><form><fieldset class="quiz-choices"><legend>${escape(question.prompt)}</legend>${choices}</fieldset><div class="quiz-feedback" id="learning-feedback" role="status" aria-live="polite" tabindex="-1">${feedback}</div><div class="quiz-actions">${action}</div></form></section>`;
     }
 
-    app.innerHTML = shell(page, content, currentTheme);
+    renderShell(content, currentTheme);
     app.setAttribute('aria-busy', 'false');
     app.querySelector('[data-theme-toggle]')?.addEventListener('click', async () => {
       currentTheme = (await toggleTheme()).theme;
@@ -162,6 +446,17 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
     });
     app.querySelector('[data-learning-check]')?.addEventListener('click', () => {
       if (session.answers[session.index] === null) return;
+      if (kind === 'practice') {
+        const question = session.questions[session.index];
+        void recordLearnerActivity({
+          type: 'practice-question-answered',
+          data: {
+            questionId: question.id,
+            correct: session.answers[session.index] === question.answerIndex,
+            tags: question.tags || []
+          }
+        }, 'Could not record the practice answer.');
+      }
       session.checked = true;
       render('#learning-feedback');
     });
@@ -178,6 +473,16 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
       }
       session.result = quizApi.scoreQuiz(session.questions, session.answers);
       session.phase = 'results';
+      if (kind === 'assessment' && !session.completionRecorded) {
+        session.completionRecorded = true;
+        void recordActivityResult({
+          type: 'checkpoint',
+          activityId: session.mode,
+          durationSeconds: activityDuration(session.startedAtSeconds),
+          score: session.result.score,
+          total: session.result.total
+        }, 'Could not save checkpoint completion.');
+      }
       render('#' + (kind === 'assessment' ? 'assessment-results-heading' : 'practice-results-heading'));
     });
     app.querySelector('[data-restart-learning]')?.addEventListener('click', () => {
@@ -189,6 +494,8 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
       session.checked = false;
       session.phase = 'question';
       session.result = null;
+      session.startedAtSeconds = activeStudySeconds();
+      session.completionRecorded = false;
       render('[data-learning-answer]');
     });
     app.querySelector('[data-restart-assessment]')?.addEventListener('click', () => {
@@ -197,6 +504,8 @@ function learningQuestionPage(bank, theme, kind, mode, title, questions) {
       session.index = 0;
       session.phase = 'question';
       session.result = null;
+      session.startedAtSeconds = activeStudySeconds();
+      session.completionRecorded = false;
       render('[data-learning-answer]');
     });
     app.querySelectorAll('[data-exit-learning],[data-exit-assessment]').forEach((button) => {
@@ -227,14 +536,15 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
       saving: false,
       saveStarted: false,
       saveError: '',
-      result: null
+      result: null,
+      startedAtSeconds: activeStudySeconds()
     };
     render('[data-quiz-answer]');
   }
 
   function render(focusSelector) {
     const content = session ? session.phase === 'results' ? quizResultsView(session) : quizQuestionView(session) : quizLobby(topics, bank, attempts, historyError);
-    app.innerHTML = shell(page, content, currentTheme);
+    renderShell(content, currentTheme);
     app.setAttribute('aria-busy', 'false');
     app.querySelector('[data-theme-toggle]')?.addEventListener('click', async () => {
       currentTheme = (await toggleTheme()).theme;
@@ -274,6 +584,13 @@ function quizPage(topics, bank, initialAttempts, theme, initialHistoryError = ''
       session.phase = 'results';
       session.saving = true;
       session.saveStarted = true;
+      void recordActivityResult({
+        type: 'quiz',
+        activityId: session.mode,
+        durationSeconds: activityDuration(session.startedAtSeconds),
+        score: session.result.score,
+        total: session.result.total
+      }, 'Could not save quiz completion.');
       render('#quiz-results-title');
       await recordDashboardEvent({
         type: 'quiz-attempt',
@@ -340,17 +657,53 @@ async function fillLeaderboard() {
 function showLevelUp(level) { const overlay = document.createElement('div'); overlay.className = 'level-up'; overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="level-title"><p class="tag">New milestone</p><h2 id="level-title">Level ${level} unlocked!</h2><p>Your steady work earned a new level.</p><button class="button button-secondary" data-close-level>Keep learning</button></div>`; document.body.append(overlay); overlay.querySelector('button').focus(); overlay.addEventListener('click',(event) => { if (event.target === overlay || event.target.matches('[data-close-level]')) overlay.remove(); }); }
 async function render() {
   const initialTheme = document.documentElement.dataset.theme || 'light';
-  app.innerHTML = shell(page, renderPageSkeleton(page), initialTheme);
+  renderShell(renderPageSkeleton(page), initialTheme);
   app.setAttribute('aria-busy', 'true');
   // Fetch page data and views while the session is being restored instead of afterwards.
-  const pageAssets = Promise.all([loadPageData(page, load), loadPageViews(page)]);
+  const pageAssets = Promise.all([
+    loadPageData(page, load),
+    loadPageViews(page),
+    load('data/achievements.json'),
+    load('data/weekly-challenges.json')
+  ]);
   pageAssets.catch(() => {});
   try {
     await initialiseAuth();
     await initTheme();
     const state = await touchStreak();
-    const [data, views] = await pageAssets;
+    const [data, views, achievements, weeklyChallenges] = await pageAssets;
     const { topics, lessons: logic, bank } = data;
+    achievementCatalog = achievements;
+    weeklyChallengeCatalog = weeklyChallenges.challenges;
+    const ownerId = getCurrentUser()?.id || null;
+    if (notificationOwnerId !== ownerId) {
+      notificationOwnerId = ownerId;
+      notificationState.notifications = [];
+      notificationState.unreadCount = 0;
+      notificationState.loaded = false;
+      notificationState.error = '';
+    }
+    await refreshNotificationState();
+    startStudyTracking();
+    if (!pageVisitRecorded) {
+      pageVisitRecorded = true;
+      void recordLearnerActivity({
+        type: 'page-visited',
+        dedupeKey: `page-visited:${page}`,
+        data: { page }
+      }, 'Could not record the learner page visit.');
+    }
+    if (page === 'lessons' && !lessonOpenedRecorded) {
+      lessonOpenedRecorded = true;
+      const lessonId = new URLSearchParams(location.search).get('lesson') || 'logic-propositions';
+      void recordLearnerActivity({
+        type: 'lesson-opened',
+        data: { lessonId }
+      }, 'Could not record the lesson visit.');
+    }
+    if (page === 'lessons' && lessonStartedAtSeconds === undefined) {
+      lessonStartedAtSeconds = activeStudySeconds();
+    }
     quizApi = views.quiz;
     practiceApi = views.practice;
     if (page === 'quizzes') {
@@ -410,7 +763,7 @@ async function render() {
       content = '';
     }
     if (page === 'dashboard') content += dashboardExtras(getCurrentUser());
-    app.innerHTML = shell(page, content, state.theme);
+    renderShell(content, state.theme);
     app.setAttribute('aria-busy', 'false');
     if (page === 'dashboard') fillLeaderboard();
     app.querySelector('[data-theme-toggle]')?.addEventListener('click', async () => {
@@ -464,6 +817,11 @@ async function render() {
       try {
         const result = await completeLesson(lesson.id, lesson.xp);
         if (result.awarded) {
+          void recordActivityResult({
+            type: 'lesson',
+            activityId: lesson.id,
+            durationSeconds: activityDuration(lessonStartedAtSeconds ?? 0)
+          }, 'Could not save lesson completion.');
           await recordDashboardEvent({
             type: 'lesson-completed',
             id: lesson.id
@@ -529,6 +887,12 @@ async function render() {
         const theme = form.elements.theme.value === 'dark' ? 'dark' : 'light';
         const next = await saveState({ ...current, nickname, theme });
         accountSettingsSaved = true;
+        if (nickname !== current.nickname) {
+          void recordLearnerActivity({
+            type: 'nickname-changed',
+            data: { changed: true }
+          }, 'Could not record the nickname change.');
+        }
         app.querySelector('.profile-summary h2').textContent = nickname;
         app.querySelector('.profile-avatar').textContent = nickname.charAt(0).toUpperCase();
         input.value = nickname;
@@ -562,6 +926,7 @@ async function render() {
     if (page === 'flashcards') {
       let index = 0;
       let revealed = false;
+      const reviewedCardIds = new Set();
       const container = app.querySelector('[data-flashcards-content]');
       const update = (focusSelector) => {
         container.innerHTML = views.practice.flashcardsView(bank, index, revealed);
@@ -578,6 +943,14 @@ async function render() {
               type: 'flashcard-revealed',
               id
             }, 'Could not save local dashboard flashcard activity.');
+            if (id && !reviewedCardIds.has(id)) {
+              reviewedCardIds.add(id);
+              void recordLearnerActivity({
+                type: 'flashcard-reviewed',
+                dedupeKey: `flashcard:${studySessionId}:${id}`,
+                data: { cardId: id, deckId: 'logic', sessionId: studySessionId }
+              }, 'Could not record the flashcard review.');
+            }
           }
           update('[data-flashcard-reveal]');
         });
@@ -597,7 +970,7 @@ async function render() {
   } catch (error) {
     console.error('Could not render page.', error);
     const heading = page === 'quizzes' ? 'Quiz content could not load.' : `${page[0].toUpperCase()}${page.slice(1)} could not load.`;
-    app.innerHTML = shell(page, `<section class="empty clay" aria-labelledby="page-load-error"><h2 id="page-load-error">${escape(heading)}</h2><p>Your study data could not be loaded. Check your connection and try again.</p><button class="button button-primary" type="button" data-retry-render>Try again</button></section>`, document.documentElement.dataset.theme || initialTheme);
+    renderShell(`<section class="empty clay" aria-labelledby="page-load-error"><h2 id="page-load-error">${escape(heading)}</h2><p>Your study data could not be loaded. Check your connection and try again.</p><button class="button button-primary" type="button" data-retry-render>Try again</button></section>`, document.documentElement.dataset.theme || initialTheme);
     app.setAttribute('aria-busy', 'false');
     app.querySelector('[data-retry-render]')?.addEventListener('click', render);
   }

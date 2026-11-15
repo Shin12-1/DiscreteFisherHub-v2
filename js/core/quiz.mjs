@@ -49,6 +49,10 @@ export function validateQuizBank(bank, lessons) {
       if (typeof question.explanation !== 'string' || !question.explanation.trim()) {
         invalid(`question ${question.id} needs an explanation.`);
       }
+      if (question.tags !== undefined && (!Array.isArray(question.tags)
+        || question.tags.some((tag) => typeof tag !== 'string' || !tag.trim()))) {
+        invalid(`question ${question.id} has invalid tags.`);
+      }
     }
   }
 
