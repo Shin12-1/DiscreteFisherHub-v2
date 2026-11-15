@@ -41,7 +41,7 @@ export function practiceView(bank) {
   const mixed = getQuestions(bank).length
     ? `<article class="practice-card practice-card-featured clay"><p class="tag">Mixed review</p><h2>Connect the ideas</h2><p>Try up to five questions selected across the Logic lessons.</p><button class="button button-primary" type="button" data-start-practice="mixed-review">Start mixed practice</button></article>`
     : '<p class="empty-state">Practice questions are not available yet.</p>';
-  return `<section class="learning-page-intro"><p class="tag">Low-stakes · learn as you go</p><h1>Practice one idea at a time.</h1><p>Choose a Logic lesson for immediate explanations, or mix topics to strengthen recall. Practice scores do not award XP or change lesson progress.</p></section><section class="practice-grid" aria-label="Practice options">${cards}${mixed}</section>`;
+  return `<div class="practice-page"><section class="learning-page-intro"><p class="tag">Low-stakes · learn as you go</p><h1>Practice one idea at a time.</h1><p>Choose a Logic lesson for immediate explanations, or mix topics to strengthen recall. Practice scores do not award XP or change lesson progress.</p></section><section class="practice-grid" aria-label="Practice options"><div class="practice-lesson-grid">${cards}</div>${mixed}</section></div>`;
 }
 
 export function flashcardsView(bank, index = 0, revealed = false) {
@@ -52,7 +52,7 @@ export function flashcardsView(bank, index = 0, revealed = false) {
   const cardIndex = Number.isInteger(index) ? ((index % questions.length) + questions.length) % questions.length : 0;
   const question = questions[cardIndex];
   const choices = question.choices.map((choice) => `<li>${escape(choice)}</li>`).join('');
-  return `<section class="learning-page-intro"><p class="tag">Recall practice · no XP</p><h1>Flashcards for Logic.</h1><p>Try to recall the answer before revealing it. Use the explanation to review the idea, then move through the deck at your own pace.</p></section><section class="flashcard-panel clay" aria-labelledby="flashcard-heading"><p class="quiz-progress-label" role="status" aria-live="polite">Card ${cardIndex + 1} of ${questions.length}</p><progress class="quiz-progress" value="${cardIndex + 1}" max="${questions.length}" aria-label="Flashcard progress"></progress><article class="flashcard-front"><h2 id="flashcard-heading" data-flashcard-heading tabindex="-1">Question</h2><p>${escape(question.prompt)}</p><ol class="flashcard-choices">${choices}</ol></article><div class="flashcard-answer" data-flashcard-answer ${revealed ? '' : 'hidden'} aria-live="polite"><h3>Answer</h3><p><strong>${escape(question.choices[question.answerIndex])}</strong></p><p>${escape(question.explanation)}</p></div><div class="flashcard-actions"><button class="button button-secondary" type="button" data-flashcard-previous ${cardIndex === 0 ? 'disabled' : ''}>Previous card</button><button class="button button-primary" type="button" data-flashcard-reveal>${revealed ? 'Hide answer' : 'Reveal answer'}</button><button class="button button-secondary" type="button" data-flashcard-next ${cardIndex === questions.length - 1 ? 'disabled' : ''}>Next card</button></div></section>`;
+  return `<div class="flashcard-focus"><section class="learning-page-intro"><p class="tag">Recall practice · no XP</p><h1>Flashcards for Logic.</h1><p>Try to recall the answer before revealing it. Use the explanation to review the idea, then move through the deck at your own pace.</p></section><section class="flashcard-panel clay" data-flashcard-id="${escape(question.id)}" aria-labelledby="flashcard-heading"><p class="quiz-progress-label" role="status" aria-live="polite">Card ${cardIndex + 1} of ${questions.length}</p><progress class="quiz-progress" value="${cardIndex + 1}" max="${questions.length}" aria-label="Flashcard progress"></progress><article class="flashcard-front"><h2 id="flashcard-heading" data-flashcard-heading tabindex="-1">Question</h2><p>${escape(question.prompt)}</p><ol class="flashcard-choices">${choices}</ol></article><div class="flashcard-answer" data-flashcard-answer ${revealed ? '' : 'hidden'} aria-live="polite"><h3>Answer</h3><p><strong>${escape(question.choices[question.answerIndex])}</strong></p><p>${escape(question.explanation)}</p></div><div class="flashcard-actions"><button class="button button-secondary" type="button" data-flashcard-previous ${cardIndex === 0 ? 'disabled' : ''}>Previous card</button><button class="button button-primary" type="button" data-flashcard-reveal>${revealed ? 'Hide answer' : 'Reveal answer'}</button><button class="button button-secondary" type="button" data-flashcard-next ${cardIndex === questions.length - 1 ? 'disabled' : ''}>Next card</button></div></section></div>`;
 }
 
 export function assessmentView(bank) {
@@ -60,7 +60,23 @@ export function assessmentView(bank) {
     ? bank.quizzes.reduce((total, quiz) => total + (Array.isArray(quiz.questions) ? quiz.questions.length : 0), 0)
     : 0;
   const ready = count >= 5;
-  return `<section class="assessment-intro clay"><p class="tag">Formative checkpoint · no XP</p><h1>Check what is sticking.</h1><p>This untimed Logic checkpoint draws from the questions currently available across published lessons. You will see your score and review explanations after submitting; answers are not revealed mid-checkpoint.</p><ul><li>${count} available questions</li><li>You can move through the questions at your own pace</li><li>Practice results do not affect lesson progress or XP</li></ul>${ready ? '<button class="button button-primary" type="button" data-start-assessment>Begin Logic checkpoint</button>' : '<p role="status">The checkpoint will be available when at least five questions are ready.</p>'}</section>`;
+  return `<div class="assessment-page">
+    <section class="assessment-intro clay" aria-labelledby="assessment-overview-heading">
+      <p class="tag">Formative checkpoint · no XP</p>
+      <h1 id="assessment-overview-heading">Check what is sticking.</h1>
+      <p>This untimed Logic checkpoint draws from questions currently available across published lessons. Answers and explanations stay hidden while you work; review them after you submit. This is practice feedback, not a course grade, and it does not affect lesson progress or XP.</p>
+      <dl class="assessment-facts" aria-label="Checkpoint details">
+        <div><dt>Question pool</dt><dd>${count} available questions</dd></div>
+        <div><dt>Pace</dt><dd>Untimed</dd></div>
+        <div><dt>Result</dt><dd>No XP</dd><small>Not a course grade</small></div>
+      </dl>
+      <section class="assessment-expectations" aria-labelledby="assessment-expectations-heading">
+        <h2 id="assessment-expectations-heading">What to expect</h2>
+        <ol><li>Answer one question at a time.</li><li>Move through the questions at your own pace.</li><li>Review your answers and explanations after you submit.</li></ol>
+      </section>
+      ${ready ? '<button class="button button-primary" type="button" data-start-assessment>Begin Logic checkpoint</button>' : '<p class="assessment-readiness" role="status">The checkpoint will be available when at least five questions are ready.</p>'}
+    </section>
+  </div>`;
 }
 
 export function practiceResultsView(session) {

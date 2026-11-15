@@ -20,3 +20,18 @@
   .mobile-more-menu a[aria-current="page"] { color:var(--navy); background:var(--gold); }
   .mobile-more-menu svg { width:20px; height:20px; }
 }
+.app-shell { grid-template-columns:220px 1fr; background:var(--canvas); }
+.sidebar { color:var(--ink); background:var(--surface); border-right:1px solid var(--border); }
+.brand { color:var(--navy); }
+.brand small { color:var(--muted); }
+.nav-link { color:var(--muted); }
+.nav-link:hover,.nav-link[aria-current="page"] { color:var(--navy); background:var(--surface-soft); }
+.sidebar .side-note { color:var(--muted); background:var(--surface-soft); border-color:var(--border); box-shadow:none; }
+.sidebar .side-note strong { color:var(--ink); }
+[data-theme="dark"] .brand { color:var(--ink); }
+[data-theme="dark"] .nav-link:hover,[data-theme="dark"] .nav-link[aria-current="page"] { color:var(--ink); }
+@media (max-width:760px) {
+  .mobile-nav a[aria-current="page"],.mobile-more-toggle[aria-current="page"],.mobile-more-toggle[aria-expanded="true"] { color:var(--navy); background:var(--surface-soft); }
+  .mobile-more-menu a[aria-current="page"] { color:var(--navy); background:var(--surface-soft); }
+}
+[data-theme="dark"] .mobile-nav a[aria-current="page"],[data-theme="dark"] .mobile-more-toggle[aria-current="page"],[data-theme="dark"] .mobile-more-toggle[aria-expanded="true"],[data-theme="dark"] .mobile-more-menu a[aria-current="page"] { color:var(--ink); }

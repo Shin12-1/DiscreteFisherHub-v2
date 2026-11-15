@@ -1,4 +1,4 @@
-import { isAuthCallbackRequest, sendMagicLink, verifyEmailOtp, waitForAuthCallback } from '../core/auth.js';
+import { isAuthCallbackRequest, isSupabaseConfigured, sendMagicLink, signInWithGoogle, verifyEmailOtp, waitForAuthCallback } from '../core/auth.js';
 import { validateOtpField, validatePasswordResetEmail } from '../core/auth-validation.mjs';
 import { escapeHtml } from '../core/html.mjs';
 
@@ -35,10 +35,12 @@ function renderRequest({ message = '', error = '', emailError = '', showOtp = fa
         <button class="button button-secondary" type="submit">Verify code</button>
       </form>
     ` : ''}
+    ${isSupabaseConfigured() ? '<div class="auth-provider-divider"><span>or</span></div><button class="button button-secondary auth-provider-button" data-google-sign-in type="button"><span class="auth-provider-mark" aria-hidden="true">G</span>Continue with Google</button>' : ''}
     <a class="text-button" href="login.html">Back to password login</a>
   `;
   app.querySelector('#magic-link-form').addEventListener('submit', requestLink);
   app.querySelector('#otp-form')?.addEventListener('submit', verifyCode);
+  app.querySelector('[data-google-sign-in]')?.addEventListener('click', signInGoogle);
   app.setAttribute('aria-busy', 'false');
   if (error) app.querySelector('[role="alert"]')?.focus();
 }
@@ -63,6 +65,22 @@ function renderInvalidLink() {
   `;
   app.setAttribute('aria-busy', 'false');
   app.querySelector('[role="alert"]')?.focus();
+}
+
+async function signInGoogle(event) {
+  const button = event.currentTarget;
+  const showOtp = Boolean(app.querySelector('#otp-form'));
+  button.disabled = true;
+  button.textContent = 'Connecting…';
+  app.setAttribute('aria-busy', 'true');
+  try {
+    await signInWithGoogle();
+  } catch (error) {
+    renderRequest({
+      error: error.message || 'We could not start Google sign-in. Please try again.',
+      showOtp
+    });
+  }
 }
 
 async function requestLink(event) {

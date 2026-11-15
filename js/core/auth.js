@@ -66,6 +66,12 @@ function explainAuthError(error) {
   return error?.message || 'We could not complete that request. Please try again.';
 }
 
+function normalizedAuthError(error) {
+  const normalized = new Error(explainAuthError(error));
+  if (error?.code) normalized.code = error.code;
+  return normalized;
+}
+
 function assertValid(credentials, mode) {
   const [firstError] = Object.values(validateAuthFields(credentials, mode));
   if (firstError) throw new Error(firstError);
@@ -162,10 +168,12 @@ export async function signUp(credentials) {
       emailRedirectTo: authPageUrl('confirm-email.html')
     }
   });
-  if (error) throw new Error(explainAuthError(error));
+  if (error) throw normalizedAuthError(error);
   // With email confirmation on, Supabase hides duplicates: it returns a fake user with no identities and sends NO email.
   if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-    throw new Error('This email is already registered. Log in instead, or use "Resend confirmation email" if you never confirmed it.');
+    const duplicateError = new Error('This email is already registered. Log in instead, or use "Resend confirmation email" if you never confirmed it.');
+    duplicateError.code = 'email_confirmation_pending';
+    throw duplicateError;
   }
   if (data.session) await activateSession(data.session);
   return { needsEmailConfirmation: !data.session };
@@ -175,9 +183,18 @@ export async function signIn(credentials) {
   assertValid(credentials, 'login');
   const supabase = await ensureClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email: credentials.email.trim(), password: credentials.password });
-  if (error) throw new Error(explainAuthError(error));
+  if (error) throw normalizedAuthError(error);
   await activateSession(data.session);
   return data.session;
+}
+
+export async function signInWithGoogle() {
+  const supabase = await ensureClient();
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: authPageUrl('dashboard.html') }
+  });
+  if (error) throw new Error(explainAuthError(error));
 }
 
 export async function resendSignupConfirmation(email) {
