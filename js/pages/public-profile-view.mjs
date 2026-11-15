@@ -113,8 +113,8 @@ function sectionMarkup(profile, topics, lessons, quizzes, isOwner, achievementTo
 
 function ownerActions(handle, shareAllowed, targets = {}) {
   const visitorUrl = `public-profile.html?handle=${encodeURIComponent(handle)}&preview=visitor`;
-  const editUrl = targets.edit || 'profile.html';
-  const visibilityUrl = targets.visibility || 'profile.html#profile-visibility';
+  const editUrl = targets.edit || 'edit-profile.html';
+  const visibilityUrl = targets.visibility || 'edit-profile.html#profile-visibility';
   const shareButton = shareAllowed
     ? '<button class="button button-primary" type="button" data-profile-share>Share profile</button>'
     : '<button class="button button-primary" type="button" data-profile-share disabled aria-label="Profile is private; sharing is off">Profile is private</button>';

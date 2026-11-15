@@ -6,6 +6,7 @@ const PAGE_LABELS = {
   flashcards: 'Flashcards',
   login: 'sign-in form',
   profile: 'Profile',
+  'edit-profile': 'Edit profile',
   progress: 'Progress',
   practice: 'Practice',
   assessments: 'Assessments'
@@ -16,7 +17,8 @@ const skeletonShapes = {
   courses: '<div class="skeleton-block skeleton-hero"></div><div class="skeleton-grid skeleton-grid-cards"><div class="skeleton-block skeleton-card"></div><div class="skeleton-block skeleton-card"></div><div class="skeleton-block skeleton-card"></div></div>',
   lessons: '<div class="skeleton-grid skeleton-grid-lesson"><div class="skeleton-block skeleton-reading"></div><div class="skeleton-block skeleton-rail"></div></div>',
   quizzes: '<div class="skeleton-block skeleton-hero"></div><div class="skeleton-grid skeleton-grid-cards"><div class="skeleton-block skeleton-card"></div><div class="skeleton-block skeleton-card"></div></div>',
-  profile: '<div class="skeleton-grid skeleton-grid-profile"><div class="skeleton-block skeleton-profile-card"></div><div class="skeleton-block skeleton-profile-form"></div></div>',
+  profile: '<div class="skeleton-block skeleton-hero"></div><div class="skeleton-grid skeleton-grid-cards"><div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div></div><div class="skeleton-block skeleton-reading"></div>',
+  'edit-profile': '<div class="skeleton-grid skeleton-grid-profile"><div class="skeleton-block skeleton-profile-card"></div><div class="skeleton-block skeleton-profile-form"></div></div>',
   progress: '<div class="skeleton-grid skeleton-grid-cards"><div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div></div><div class="skeleton-block skeleton-reading"></div>',
   practice: '<div class="skeleton-block skeleton-hero"></div><div class="skeleton-grid skeleton-grid-cards"><div class="skeleton-block skeleton-card"></div><div class="skeleton-block skeleton-card"></div></div>',
   assessments: '<div class="skeleton-block skeleton-hero"></div><div class="skeleton-block skeleton-reading"></div>',

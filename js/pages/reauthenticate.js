@@ -22,7 +22,7 @@ function renderRequest(error = '') {
     <p>We’ll send a one-time verification code to <strong>${escapeHtml(userEmail)}</strong>.</p>
     ${error ? `<p class="form-error" role="alert" tabindex="-1">${escapeHtml(error)}</p>` : ''}
     <button class="button button-primary" type="button" data-send-reauthentication>Send verification code</button>
-    <a class="text-button" href="profile.html">Back to profile</a>
+    <a class="text-button" href="edit-profile.html">Back to Edit profile</a>
   `;
   app.querySelector('[data-send-reauthentication]').addEventListener('click', sendCode);
   app.setAttribute('aria-busy', 'false');
@@ -44,7 +44,7 @@ function renderCode({ message = '', error = '', fieldError = '' } = {}) {
       </div>
       <button class="button button-primary" type="submit">Verify identity</button>
     </form>
-    <a class="text-button" href="profile.html">Back to profile</a>
+    <a class="text-button" href="edit-profile.html">Back to Edit profile</a>
   `;
   app.querySelector('#reauthentication-form').addEventListener('submit', verifyCode);
   app.setAttribute('aria-busy', 'false');
@@ -56,7 +56,7 @@ function renderSuccess() {
     <p class="tag">Account security</p>
     <h1>Identity verified.</h1>
     <p data-auth-status class="form-message" role="status">Your identity is verified.</p>
-    <a class="button button-primary" href="profile.html">Return to profile</a>
+    <a class="button button-primary" href="edit-profile.html">Return to Edit profile</a>
   `;
   app.setAttribute('aria-busy', 'false');
 }

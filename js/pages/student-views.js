@@ -69,23 +69,35 @@ function visibilitySettingsView(settings, blockedProfiles, error, blockedProfile
   </section>`;
 }
 
-export function profileView(user, state, visibilitySettings = null, blockedProfiles = [], profileSettingsError = '', blockedProfilesError = '', dashboard = null) {
+export function profileView(user, state, dashboard = null) {
   const signedIn = Boolean(user);
-  const nickname = String(state.nickname || 'Fisher learner');
-  const preferences = normalizeProfilePreferences(state.profilePreferences);
-  const theme = state.theme === 'dark' ? 'dark' : 'light';
+  const nickname = String(state?.nickname || 'Fisher learner');
   const dashboardMarkup = !signedIn
-    ? '<section class="profile-dashboard-message clay" data-profile-dashboard-guest><h2>Your learning dashboard</h2><p>Your dashboard is available after signing in.</p><a class="button button-primary" href="../pages/login.html">Sign in to sync</a></section>'
+    ? `<section class="profile-dashboard-message clay" data-profile-dashboard-guest><h2>Your learning dashboard</h2><p>${escape(nickname)}'s dashboard is available after signing in.</p><a class="button button-primary" href="../pages/login.html">Sign in to sync</a><a class="button button-secondary" href="edit-profile.html">Edit profile</a></section>`
     : dashboard?.error
-      ? `<section class="profile-dashboard-message clay" data-profile-dashboard-error role="alert"><h2>Your learning dashboard</h2><p>${escape(dashboard.error)}</p></section>`
-      : dashboard?.markup || '';
+      ? `<section class="profile-dashboard-message clay" data-profile-dashboard-error role="alert"><h2>Your learning dashboard</h2><p>${escape(dashboard.error)}</p><a class="button button-secondary" href="edit-profile.html">Edit profile</a></section>`
+      : dashboard?.markup || '<section class="profile-dashboard-message clay" data-profile-dashboard-error role="alert"><h2>Your learning dashboard</h2><p>Your profile dashboard is unavailable.</p><a class="button button-secondary" href="edit-profile.html">Edit profile</a></section>';
   return `<div class="profile-page">
   <section class="learning-page-intro">
     <p class="tag">${signedIn ? 'Synced account' : 'Guest profile'}</p>
     <h1>Your study profile</h1>
-    <p>Set a few study preferences without crowding your learning pages.</p>
+    <p>A snapshot of your progress, achievements, and recent learning milestones.</p>
   </section>
   ${dashboardMarkup}
+  </div>`;
+}
+
+export function editProfileView(user, state, visibilitySettings = null, blockedProfiles = [], profileSettingsError = '', blockedProfilesError = '') {
+  const signedIn = Boolean(user);
+  const nickname = String(state.nickname || 'Fisher learner');
+  const preferences = normalizeProfilePreferences(state.profilePreferences);
+  const theme = state.theme === 'dark' ? 'dark' : 'light';
+  return `<div class="profile-page">
+  <section class="learning-page-intro">
+    <p class="tag">${signedIn ? 'Synced account' : 'Guest profile'}</p>
+    <h1>Edit your profile</h1>
+    <p>Manage your personal details, study preferences, account, and privacy.</p>
+  </section>
   <section class="profile-layout">
     <article class="profile-summary clay">
       <div class="profile-id">

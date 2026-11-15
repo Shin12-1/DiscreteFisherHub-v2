@@ -666,7 +666,7 @@ test('magic-link callback errors show an expired-link message', async () => {
 
 const savedAuthToken = { [`sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`]: { access_token: 'test-token' } };
 
-test('profile: owner dashboard loads private learner data above Personal details', async () => {
+test('profile: owner dashboard stands alone and links to Edit profile', async () => {
   const session = { user: { id: 'user-owner-dashboard', email: 'student@example.com' } };
   const handle = 'a'.repeat(32);
   const rpcCalls = [];
@@ -700,45 +700,62 @@ test('profile: owner dashboard loads private learner data above Personal details
     supabase: { createClient: () => client }
   });
   const dashboard = page.$('.public-profile-page');
-  const personalDetails = page.$('#profile-details');
   assert.ok(
     dashboard,
     `owner profile dashboard is rendered on the profile route; error: ${page.$('[data-profile-dashboard-error]')?.textContent || 'none'}; console: ${page.errors.join(' | ') || 'none'}`
   );
-  assert.ok(personalDetails, 'Personal details remain editable below the dashboard');
-  assert.ok(dashboard.compareDocumentPosition(personalDetails) & page.window.Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.equal(page.$('#profile-details'), null, 'profile editing is on its own route');
+  assert.equal(page.$('[data-profile-visibility-form]'), null, 'privacy settings are on Edit profile');
   assert.match(dashboard.textContent, /Mika Santos/);
   assert.match(dashboard.textContent, /Truth tables quiz/);
   assert.match(dashboard.textContent, /Finished Logic course/);
   assert.match(dashboard.querySelector('[data-profile-badges]').textContent, /12 of 23/);
   assert.equal(dashboard.querySelector('[data-profile-share]').disabled, true, 'private owners cannot share their profile');
   assert.equal(dashboard.querySelector('[data-profile-preview]').getAttribute('href').includes('preview=visitor'), true);
-  assert.equal(dashboard.querySelector('[data-profile-visibility]').getAttribute('href'), '#profile-visibility');
+  assert.equal(dashboard.querySelector('[data-owner-controls] a').getAttribute('href'), 'edit-profile.html');
+  assert.equal(dashboard.querySelector('[data-profile-visibility]').getAttribute('href'), 'edit-profile.html#profile-visibility');
   assert.deepEqual(rpcCalls.find(({ name }) => name === 'load_public_profile'), {
     name: 'load_public_profile',
     args: { target_handle: handle, visitor_preview: false }
   });
-  assert.ok(page.$('[data-profile-visibility-form]'), 'privacy settings remain available below the dashboard');
-  const nickname = page.$('#profile-nickname');
-  nickname.value = 'Mika Chen';
-  page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
-  await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
-  assert.equal(dashboard.querySelector('.public-profile-identity h2').textContent, 'Mika Chen');
-  assert.equal(dashboard.querySelector('.public-profile-identity .profile-avatar').textContent, 'MC');
   page.done();
 });
 
-test('profile: guest dashboard avoids fabricated metrics and preserves Personal details', async () => {
+test('profile: guest dashboard avoids fabricated metrics and links to local profile editing', async () => {
   const page = await openPage('pages/profile.html');
   assert.match(page.text(), /dashboard is available after signing in/i);
   assert.equal(page.$('.public-profile-page'), null);
   assert.equal(page.$('[data-profile-share]'), null);
-  assert.ok(page.$('#profile-details'), 'guest Personal details remain editable');
-  assert.ok(page.$('[data-profile-form]'), 'guest preferences remain available');
+  assert.equal(page.$('#profile-details'), null, 'profile settings are not embedded in the dashboard');
+  assert.equal(page.$('[data-profile-form]'), null);
+  assert.equal(page.$('[data-profile-dashboard-guest] a[href="edit-profile.html"]')?.textContent, 'Edit profile');
   page.done();
 });
 
-test('profile: owner dashboard load errors preserve settings and privacy controls', async () => {
+test('profile: Edit profile retains guest editing and signed-in privacy controls', async () => {
+  const guest = await openPage('pages/edit-profile.html');
+  assert.equal(guest.$('[data-profile-form]') != null, true, 'guest preferences remain editable');
+  assert.ok(guest.$('#profile-details'));
+  assert.equal(guest.$('[data-profile-visibility-form]'), null, 'guest privacy settings remain account-only');
+  assert.equal(guest.$('.public-profile-page'), null);
+  guest.done();
+
+  const session = { user: { id: 'user-edit-profile-route', email: 'student@example.com' } };
+  const page = await openPage('pages/edit-profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => createSessionClient(session) }
+  });
+  assert.equal(page.$('.page-title')?.textContent, 'Edit profile');
+  assert.ok(page.$('[data-profile-form]'), 'existing preferences are retained');
+  assert.ok(page.$('[data-profile-visibility-form]'), 'existing privacy settings are retained');
+  assert.ok(page.$('[data-change-email]'), 'account security links remain on Edit profile');
+  assert.ok(page.$('[data-profile-visibility]'));
+  assert.equal(page.$('.public-profile-page'), null);
+  assert.equal(page.$('a[aria-current="page"]')?.getAttribute('href'), '../pages/profile.html');
+  page.done();
+});
+
+test('profile: owner dashboard load errors keep an Edit profile path', async () => {
   const session = { user: { id: 'user-owner-dashboard-error', email: 'student@example.com' } };
   const client = createSessionClient(session);
   client.rpc = async (name) => name === 'load_public_profile'
@@ -751,8 +768,8 @@ test('profile: owner dashboard load errors preserve settings and privacy control
   const dashboardError = page.$('[data-profile-dashboard-error]');
   assert.ok(dashboardError, 'dashboard load failure is visible');
   assert.match(dashboardError.textContent, /could not load your profile dashboard/i);
-  assert.ok(page.$('#profile-details'), 'Personal details remain editable after the dashboard error');
-  assert.ok(page.$('[data-profile-visibility-form]'), 'privacy controls remain available after the dashboard error');
+  assert.equal(page.$('#profile-details'), null, 'settings are kept on their own route');
+  assert.equal(dashboardError.querySelector('a[href="edit-profile.html"]')?.textContent, 'Edit profile');
   page.done(['Could not load the owner profile dashboard']);
 });
 
@@ -782,13 +799,13 @@ test('profile: owner dashboard handles a missing profile link without an RPC req
   });
   assert.match(page.$('[data-profile-dashboard-error]').textContent, /profile link is not available/i);
   assert.equal(rpcCalls.some(({ name }) => name === 'load_public_profile'), false);
-  assert.equal(page.$('[data-public-profile-url]'), null, 'missing handles do not produce an invalid profile URL');
-  assert.ok(page.$('#profile-details'));
+  assert.equal(page.$('[data-public-profile-url]'), null);
+  assert.equal(page.$('[data-profile-dashboard-error] a[href="edit-profile.html"]')?.textContent, 'Edit profile');
   page.done();
 });
 
 test('profile: compact identity header precedes preferences', async () => {
-  const page = await openPage('pages/profile.html');
+  const page = await openPage('pages/edit-profile.html');
   const profile = page.$('.profile-page');
   assert.ok(profile, 'Profile uses its scoped page layout');
   const layout = profile.querySelector('.profile-layout');
@@ -806,13 +823,13 @@ test('profile: compact identity header precedes preferences', async () => {
 });
 
 test('signed-in profile exposes account security links while guest profile does not', async () => {
-  const guest = await openPage('pages/profile.html');
+  const guest = await openPage('pages/edit-profile.html');
   assert.equal(guest.$('[data-change-email]'), null);
   assert.equal(guest.$('[data-reauthenticate]'), null);
   guest.done();
 
   const session = { user: { id: 'user-4', email: 'student@example.com' } };
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: savedAuthToken,
     supabase: { createClient: () => createSessionClient(session) }
   });
@@ -824,7 +841,7 @@ test('signed-in profile exposes account security links while guest profile does 
 test('profile: signed-in learner can save public visibility and leaderboard opt-in', async () => {
   const session = { user: { id: 'user-profile-visibility', email: 'student@example.com' } };
   const databaseCalls = [];
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: savedAuthToken,
     supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
   });
@@ -881,7 +898,7 @@ test('public profile: invalid handles are unavailable without requiring a sessio
 });
 
 test('profile: guest with legacy state gets local preference defaults', async () => {
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: { 'dfh:learner-state': { nickname: 'Legacy learner', xp: 25, completedLessons: [] } }
   });
   const { getState } = await import('../js/core/state.js');
@@ -903,7 +920,7 @@ test('profile: guest with legacy state gets local preference defaults', async ()
 test('profile: signed-in preferences save locally without syncing', async () => {
   const session = { user: { id: 'user-profile-preferences', email: 'student@example.com' } };
   const databaseCalls = [];
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: savedAuthToken,
     supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
   });
@@ -930,7 +947,7 @@ test('profile: signed-in preferences save locally without syncing', async () => 
 test('profile: learner-state saves do not depend on local preference storage', async () => {
   const session = { user: { id: 'user-profile-preferences-storage-error', email: 'student@example.com' } };
   const databaseCalls = [];
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: savedAuthToken,
     supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
   });
@@ -966,6 +983,7 @@ test('change-email request requires a signed-in user and validates the new addre
     seed: savedAuthToken,
     supabase: { createClient: () => client }
   });
+  assert.equal(page.$('a.text-button')?.getAttribute('href'), 'edit-profile.html');
   const submit = () => page.$('#change-email-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   page.$('[name="email"]').value = 'bad-address';
   submit();
@@ -988,6 +1006,7 @@ test('email-change callback accepts a verified user-update event', async () => {
   });
   assert.match(page.text(), /email address updated/i);
   assert.equal(page.$('[data-auth-status]')?.getAttribute('role'), 'status');
+  assert.equal(page.$('a.button-primary')?.getAttribute('href'), 'edit-profile.html');
   page.done();
 });
 
@@ -1000,6 +1019,7 @@ test('email-change callback errors do not fall back to the signed-in request for
   });
   assert.match(page.text(), /link is invalid or has expired/i);
   assert.equal(page.$('#change-email-form'), null);
+  assert.equal(page.$('a.button-primary')?.getAttribute('href'), 'edit-profile.html');
   page.done();
 });
 
@@ -1023,8 +1043,10 @@ test('reauthentication requires sign-in, validates OTP, and reports verification
     seed: savedAuthToken,
     supabase: { createClient: () => client }
   });
+  assert.equal(page.$('a.text-button')?.getAttribute('href'), 'edit-profile.html');
   page.click('[data-send-reauthentication]');
   await page.until(() => Boolean(page.$('#reauthentication-form')), 'reauthentication code form');
+  assert.equal(page.$('#reauthentication-form + a')?.getAttribute('href'), 'edit-profile.html');
   const submit = () => page.$('#reauthentication-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   page.$('[name="token"]').value = '';
   submit();
@@ -1040,6 +1062,7 @@ test('reauthentication requires sign-in, validates OTP, and reports verification
   submit();
   await page.until(() => /identity verified/i.test(page.text()), 'successful reauthentication');
   assert.equal(tokens.length, 2);
+  assert.equal(page.$('a.button-primary')?.getAttribute('href'), 'edit-profile.html');
   page.done();
 });
 
@@ -1054,6 +1077,7 @@ for (const [file, heading] of [
   ['pages/assessments.html', 'Check what is sticking'],
   ['pages/progress.html', 'Progress you can understand'],
   ['pages/profile.html', 'Your study profile'],
+  ['pages/edit-profile.html', 'Edit your profile'],
   ['pages/achievements.html', 'Small wins add up'],
   ['pages/public-profile.html', 'Profile not available'],
   ['pages/login.html', 'Welcome back']
@@ -1533,7 +1557,7 @@ test('lesson: the truth-table explorer responds to the switches', async () => {
 });
 
 test('profile: saving a nickname updates the page', async () => {
-  const page = await openPage('pages/profile.html');
+  const page = await openPage('pages/edit-profile.html');
   const input = page.$('#profile-nickname'); input.value = 'Kian Reyes';
   page.$('[data-profile-form]').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   await page.until(() => /Profile settings saved/.test(page.text()), 'the profile settings to save');
@@ -1546,7 +1570,7 @@ test('profile: saving a nickname updates the page', async () => {
 });
 
 test('profile: saves preferences and applies appearance settings', async () => {
-  const page = await openPage('pages/profile.html');
+  const page = await openPage('pages/edit-profile.html');
   const form = page.$('[data-profile-form]');
   form.elements.nickname.value = 'Kian Reyes';
   form.elements.program.value = 'BS Information Technology';
@@ -1586,7 +1610,7 @@ test('profile: saves preferences and applies appearance settings', async () => {
 });
 
 test('profile: invalid nickname prevents all profile changes', async () => {
-  const page = await openPage('pages/profile.html');
+  const page = await openPage('pages/edit-profile.html');
   const initialState = page.storage('dfh:learner-state');
   const initialPreferences = page.storage('dfh:profile-preferences');
   const form = page.$('[data-profile-form]');
@@ -1605,7 +1629,7 @@ test('profile: invalid nickname prevents all profile changes', async () => {
 });
 
 test('profile: applies saved reduced motion on initialization', async () => {
-  const page = await openPage('pages/profile.html', {
+  const page = await openPage('pages/edit-profile.html', {
     seed: { 'dfh:profile-preferences': { reduceMotion: true } }
   });
   assert.equal(page.window.document.documentElement.dataset.reduceMotion, 'true');

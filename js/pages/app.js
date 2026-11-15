@@ -384,7 +384,7 @@ function retryPendingStudySessions() {
 async function loadPageViews(pageName) {
   const [learning, student, practice, quiz, achievementsView, publicProfileView] = await Promise.all([
     ['dashboard', 'courses', 'lessons'].includes(pageName) ? import('./learning-views.js') : null,
-    ['profile', 'progress'].includes(pageName) ? import('./student-views.js') : null,
+    ['profile', 'edit-profile', 'progress'].includes(pageName) ? import('./student-views.js') : null,
     ['practice', 'assessments', 'flashcards'].includes(pageName) ? import('./practice-views.js') : null,
     ['quizzes', 'practice', 'assessments'].includes(pageName) ? import('../core/quiz.mjs') : null,
     pageName === 'achievements' ? import('./achievements-view.mjs') : null,
@@ -856,16 +856,10 @@ async function render() {
         try {
           profileSettings = await loadProfileSettings({ client });
         } catch (error) {
-          console.error('Could not load profile privacy settings.', error);
-          profileSettingsError = 'Privacy settings could not be loaded.';
+          console.error('Could not load owner profile settings.', error);
+          ownerDashboardError = 'Could not load your profile dashboard.';
         }
         if (profileSettings) {
-          try {
-            blockedProfiles = await listBlockedProfiles({ client });
-          } catch (error) {
-            console.error('Could not load blocked profiles.', error);
-            blockedProfilesError = 'Blocked profiles could not be loaded.';
-          }
           if (!profileSettings.publicHandle) {
             ownerDashboardError = 'Your profile link is not available yet.';
           } else {
@@ -886,7 +880,7 @@ async function render() {
                   topics,
                   lessons: logic.lessons,
                   quizzes: bank.quizzes,
-                  ownerActionTargets: { edit: '#profile-details', visibility: '#profile-visibility' },
+                  ownerActionTargets: { edit: 'edit-profile.html', visibility: 'edit-profile.html#profile-visibility' },
                   headingLevel: 'h2',
                   achievementTotal: achievements.achievements.length
                 });
@@ -905,18 +899,41 @@ async function render() {
               ownerDashboardError = 'Could not load your profile dashboard.';
             }
           }
-        } else if (profileSettingsError) {
-          ownerDashboardError = 'Could not load your profile dashboard.';
+        } else if (!ownerDashboardError) {
+          ownerDashboardError = 'Your profile settings are not available.';
         }
       }
       content = views.student.profileView(
-        getCurrentUser(),
+        user,
+        state,
+        { markup: ownerDashboardMarkup, error: ownerDashboardError }
+      );
+    } else if (page === 'edit-profile') {
+      const user = getCurrentUser();
+      if (user) {
+        const client = getActivityAdapter()?.client;
+        try {
+          profileSettings = await loadProfileSettings({ client });
+        } catch (error) {
+          console.error('Could not load profile privacy settings.', error);
+          profileSettingsError = 'Privacy settings could not be loaded.';
+        }
+        if (profileSettings) {
+          try {
+            blockedProfiles = await listBlockedProfiles({ client });
+          } catch (error) {
+            console.error('Could not load blocked profiles.', error);
+            blockedProfilesError = 'Blocked profiles could not be loaded.';
+          }
+        }
+      }
+      content = views.student.editProfileView(
+        user,
         state,
         profileSettings,
         blockedProfiles,
         profileSettingsError,
-        blockedProfilesError,
-        { markup: ownerDashboardMarkup, error: ownerDashboardError }
+        blockedProfilesError
       );
     } else if (page === 'progress') {
       let attempts = null;

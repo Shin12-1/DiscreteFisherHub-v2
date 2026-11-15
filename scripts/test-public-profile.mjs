@@ -13,7 +13,7 @@ import {
 } from '../js/core/profile-data.mjs';
 import { renderPublicProfileView } from '../js/pages/public-profile-view.mjs';
 import { renderAchievementsView } from '../js/pages/achievements-view.mjs';
-import { profileView } from '../js/pages/student-views.js';
+const { editProfileView } = await import('../js/pages/student-views.js');
 import { pageUrl } from '../js/core/router.js';
 import { shell } from '../js/components/shell.js';
 
@@ -210,20 +210,21 @@ test('owner profile renderer supports in-page edit targets and keeps standalone 
     const embedded = renderPublicProfileView({
       profile,
       isOwner: true,
-      ownerActionTargets: { edit: '#profile-details', visibility: '#profile-visibility' },
+      ownerActionTargets: { edit: 'edit-profile.html', visibility: 'edit-profile.html#profile-visibility' },
       headingLevel: 'h2',
       achievementTotal: 24
     });
     dom.window.document.body.append(embedded);
     assert.equal(embedded.querySelector('.public-profile-identity h2')?.textContent, 'Logic Learner');
     assert.equal(embedded.querySelector('.public-profile-identity h1'), null);
-    assert.equal(embedded.querySelector('[data-owner-controls] a')?.getAttribute('href'), '#profile-details');
-    assert.equal(embedded.querySelector('[data-profile-visibility]')?.getAttribute('href'), '#profile-visibility');
+    assert.equal(embedded.querySelector('[data-owner-controls] a')?.getAttribute('href'), 'edit-profile.html');
+    assert.equal(embedded.querySelector('[data-profile-visibility]')?.getAttribute('href'), 'edit-profile.html#profile-visibility');
     assert.equal(embedded.querySelector('[data-profile-pinned-badges]')?.getAttribute('href'), '../pages/achievements.html');
     assert.match(embedded.querySelector('[data-profile-badges]').textContent, /12 of 24/);
 
     const standalone = renderPublicProfileView({ profile, isOwner: true });
-    assert.equal(standalone.querySelector('[data-owner-controls] a')?.getAttribute('href'), 'profile.html');
+    assert.equal(standalone.querySelector('[data-owner-controls] a')?.getAttribute('href'), 'edit-profile.html');
+    assert.equal(standalone.querySelector('[data-profile-visibility]')?.getAttribute('href'), 'edit-profile.html#profile-visibility');
   } finally {
     globalThis.document = oldDocument;
     globalThis.location = oldLocation;
@@ -293,6 +294,7 @@ test('owner view adds management controls and hidden sections stay absent', () =
 });
 
 test('signed-in profile exposes privacy controls and blocked-profile management', () => {
+  assert.equal(typeof editProfileView, 'function', 'the settings view is available on the separate Edit profile route');
   globalThis.location = { pathname: '/pages/profile.html' };
   const settings = {
     publicHandle: handle,
@@ -308,7 +310,7 @@ test('signed-in profile exposes privacy controls and blocked-profile management'
     selectedTitle: 'logic-rookie',
     pinnedBadgeIds: ['first-step']
   };
-  const markup = profileView({ id: 'learner-1', email: 'learner@example.com' }, {}, settings, [
+  const markup = editProfileView({ id: 'learner-1', email: 'learner@example.com' }, {}, settings, [
     { handle: 'b'.repeat(32), nickname: 'Blocked learner' }
   ]);
   assert.match(markup, /data-profile-visibility/);

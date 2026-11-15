@@ -30,7 +30,7 @@ function renderForm(email, { message = '', error = '', fieldError = '' } = {}) {
       <button class="button button-primary" type="submit">Send confirmation emails</button>
     </form>
     ${message ? `<p data-auth-status class="form-message" role="status">${escapeHtml(message)}</p>` : ''}
-    <a class="text-button" href="profile.html">Back to profile</a>
+    <a class="text-button" href="edit-profile.html">Back to Edit profile</a>
   `;
   app.querySelector('#change-email-form').addEventListener('submit', submit);
   app.setAttribute('aria-busy', 'false');
@@ -42,7 +42,7 @@ function renderConfirmed() {
     <p class="tag">Account security</p>
     <h1>Email address updated.</h1>
     <p data-auth-status class="form-message" role="status">Your new email address has been confirmed.</p>
-    <a class="button button-primary" href="profile.html">Return to profile</a>
+    <a class="button button-primary" href="edit-profile.html">Return to Edit profile</a>
   `;
   app.setAttribute('aria-busy', 'false');
 }
@@ -51,8 +51,8 @@ function renderUnavailable() {
   app.innerHTML = `
     <p class="tag">Account security</p>
     <h1>Email confirmation unavailable.</h1>
-    <p class="form-error" role="alert">This email-change link is invalid or has expired. Request a new email change from your profile.</p>
-    <a class="button button-primary" href="profile.html">Return to profile</a>
+    <p class="form-error" role="alert">This email-change link is invalid or has expired. Request a new email change from Edit profile.</p>
+    <a class="button button-primary" href="edit-profile.html">Return to Edit profile</a>
   `;
   app.setAttribute('aria-busy', 'false');
 }

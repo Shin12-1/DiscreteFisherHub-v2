@@ -10,6 +10,7 @@ import { validateAuthFields, validateNickname } from '../js/core/auth-validation
 import { renderPageSkeleton } from '../js/components/loading.js';
 import { dashboardView, coursesView, lessonsView } from '../js/pages/learning-views.js';
 import { profileView, progressView } from '../js/pages/student-views.js';
+const { editProfileView } = await import('../js/pages/student-views.js');
 import { assessmentResultsView, assessmentView, flashcardsView, practiceResultsView, practiceView, selectAssessmentQuestions, selectPracticeQuestions } from '../js/pages/practice-views.js';
 import { scoreQuiz } from '../js/core/quiz.mjs';
 import { shell } from '../js/components/shell.js';
@@ -64,6 +65,7 @@ const resourcesByPage = {
   lessons: ['data/lessons/logic.json'],
   quizzes: ['data/topics.json', 'data/quizzes/logic.json'],
   profile: ['data/topics.json', 'data/lessons/logic.json', 'data/quizzes/logic.json'],
+  'edit-profile': [],
   progress: ['data/topics.json', 'data/lessons/logic.json'],
   practice: ['data/quizzes/logic.json'],
   assessments: ['data/quizzes/logic.json'],
@@ -145,13 +147,14 @@ assert.equal(validateNickname('Abc'), '');
 assert.match(validateNickname('x'), /3–32/);
 assert.match(validateNickname('x'.repeat(33)), /3–32/);
 
-const pages = ['dashboard', 'courses', 'lessons', 'quizzes', 'profile', 'progress', 'practice', 'assessments', 'flashcards', 'login'];
+const pages = ['dashboard', 'courses', 'lessons', 'quizzes', 'profile', 'edit-profile', 'progress', 'practice', 'assessments', 'flashcards', 'login'];
 const skeletons = pages.map((page) => renderPageSkeleton(page));
 assert.equal(new Set(skeletons).size, pages.length, 'each page should have a distinct skeleton');
 for (const [index, page] of pages.entries()) {
   assert.match(skeletons[index], /role="status"/);
   assert.match(skeletons[index], /aria-busy="true"/);
-  assert.match(skeletons[index], new RegExp(`Loading ${page === 'login' ? 'sign-in form' : page}`, 'i'));
+  const label = page === 'login' ? 'sign-in form' : page === 'edit-profile' ? 'Edit profile' : page;
+  assert.match(skeletons[index], new RegExp(`Loading ${label}`, 'i'));
 }
 assert.match(renderPageSkeleton('not-a-page'), /Loading content/i);
 
@@ -182,6 +185,9 @@ Object.defineProperty(globalThis, 'location', {
   value: { pathname: '/pages/courses.html' }
 });
 const profileShell = shell('profile', '<p>Profile content</p>', 'light');
+const editProfileShell = shell('edit-profile', '<p>Edit profile content</p>', 'light');
+assert.match(editProfileShell, /class="page-title">Edit profile</);
+assert.match(editProfileShell, /href="\.\.\/pages\/profile\.html" aria-current="page"/);
 const mobileNavigation = profileShell.split('<nav class="mobile-nav"')[1].split('<div id="mobile-more-menu"')[0];
 assert.equal((mobileNavigation.match(/<a\b/g) || []).length, 4, 'mobile navigation has four direct page links');
 assert.equal((mobileNavigation.match(/<button\b/g) || []).length, 1, 'mobile navigation has one More button');
@@ -364,16 +370,21 @@ assert.doesNotMatch(lessonView, /unknown-lesson/);
 
 const guestProfile = profileView(null, guestState);
 assert.match(guestProfile, /class="profile-page"/);
-const profileIntroIndex = guestProfile.indexOf('class="learning-page-intro"');
-const profileLayoutIndex = guestProfile.indexOf('class="profile-layout"');
-const profileSummaryIndex = guestProfile.indexOf('class="profile-summary clay"');
-const profileFormIndex = guestProfile.indexOf('data-profile-form');
-const profileAccountIndex = guestProfile.indexOf('class="profile-account clay"');
-assert.ok(profileIntroIndex < profileLayoutIndex && profileLayoutIndex < profileSummaryIndex && profileSummaryIndex < profileFormIndex && profileFormIndex < profileAccountIndex);
-assert.match(guestProfile, /Guest learner/);
-assert.match(guestProfile, /name="nickname"/);
+assert.match(guestProfile, /data-profile-dashboard-guest/);
+assert.match(guestProfile, /href="edit-profile\.html"/);
 assert.match(guestProfile, /Sign in to sync/);
-assert.doesNotMatch(guestProfile, /data-logout/);
+assert.doesNotMatch(guestProfile, /data-profile-form|data-profile-visibility-form|data-logout/);
+assert.equal(typeof editProfileView, 'function', 'settings render from the separate Edit profile view');
+const guestEditProfile = editProfileView(null, guestState);
+const profileIntroIndex = guestEditProfile.indexOf('class="learning-page-intro"');
+const profileLayoutIndex = guestEditProfile.indexOf('class="profile-layout"');
+const profileSummaryIndex = guestEditProfile.indexOf('class="profile-summary clay"');
+const profileFormIndex = guestEditProfile.indexOf('data-profile-form');
+const profileAccountIndex = guestEditProfile.indexOf('class="profile-account clay"');
+assert.ok(profileIntroIndex < profileLayoutIndex && profileLayoutIndex < profileSummaryIndex && profileSummaryIndex < profileFormIndex && profileFormIndex < profileAccountIndex);
+assert.match(guestEditProfile, /Guest learner/);
+assert.match(guestEditProfile, /name="nickname"/);
+assert.doesNotMatch(guestEditProfile, /data-logout/);
 for (const [name, label] of [
   ['program', 'Program'],
   ['yearLevel', 'Year level'],
@@ -383,18 +394,18 @@ for (const [name, label] of [
   ['lessonStyle', 'Lesson support'],
   ['theme', 'Appearance']
 ]) {
-  assert.match(guestProfile, new RegExp(`name="${name}"`), `${name} control is present`);
-  assert.match(guestProfile, new RegExp(`<label[^>]*>${label}</label>`), `${name} control has a label`);
+  assert.match(guestEditProfile, new RegExp(`name="${name}"`), `${name} control is present`);
+  assert.match(guestEditProfile, new RegExp(`<label[^>]*>${label}</label>`), `${name} control has a label`);
 }
 for (const [name, label] of [['studyReminders', 'Study reminders'], ['assessmentUpdates', 'Assessment updates'], ['reduceMotion', 'Reduce motion']]) {
-  assert.match(guestProfile, new RegExp(`name="${name}"`), `${name} control is present`);
-  assert.match(guestProfile, new RegExp(`<label class="profile-toggle"><span>${label}</span><input[^>]*name="${name}"`), `${name} control has a full-row label`);
+  assert.match(guestEditProfile, new RegExp(`name="${name}"`), `${name} control is present`);
+  assert.match(guestEditProfile, new RegExp(`<label class="profile-toggle"><span>${label}</span><input[^>]*name="${name}"`), `${name} control has a full-row label`);
 }
-assert.match(guestProfile, /name="program"><option value="" selected>Not set/);
-assert.match(guestProfile, /name="yearLevel"><option value="" selected>Not set/);
-assert.doesNotMatch(guestProfile, /profile-summary-details|data-profile-(program|year)-summary/);
-assert.match(guestProfile, /Reminder preferences are saved locally; no notifications are sent/i);
-const accountProfile = profileView({ email: 'student@example.edu' }, guestState);
+assert.match(guestEditProfile, /name="program"><option value="" selected>Not set/);
+assert.match(guestEditProfile, /name="yearLevel"><option value="" selected>Not set/);
+assert.doesNotMatch(guestEditProfile, /profile-summary-details|data-profile-(program|year)-summary/);
+assert.match(guestEditProfile, /Reminder preferences are saved locally; no notifications are sent/i);
+const accountProfile = editProfileView({ email: 'student@example.edu' }, guestState);
 assert.match(accountProfile, /class="profile-page"/);
 assert.match(accountProfile, /student@example\.edu/);
 assert.match(accountProfile, /data-logout/);
