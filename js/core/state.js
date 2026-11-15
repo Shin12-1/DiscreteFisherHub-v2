@@ -16,9 +16,13 @@ export async function getState() {
 export async function saveState(next) {
   const { profilePreferences, ...learnerState } = next;
   const normalizedPreferences = normalizeProfilePreferences(profilePreferences);
-  await getLocalStorageAdapter().set(PROFILE_PREFERENCES_KEY, normalizedPreferences);
   const state = await storage.set(KEY, { ...defaults, ...learnerState });
   return { ...state, profilePreferences: normalizedPreferences };
+}
+export async function saveProfilePreferences(preferences) {
+  const normalizedPreferences = normalizeProfilePreferences(preferences);
+  await getLocalStorageAdapter().set(PROFILE_PREFERENCES_KEY, normalizedPreferences);
+  return normalizedPreferences;
 }
 export async function touchStreak() { const state = await getState(); if (storage.kind === 'supabase') return state; const now = today(); if (state.lastActiveDate === now) return state; const streak = state.lastActiveDate === yesterday() ? state.streak + 1 : 1; return saveState({ ...state, streak, lastActiveDate:now }); }
 export async function completeLesson(id, xp = 50) { const state = await touchStreak(); if (state.completedLessons.includes(id)) return { state, awarded:false, leveledUp:false }; const candidate = { ...state, xp:state.xp + xp, level:Math.floor((state.xp + xp) / 150) + 1, completedLessons:[...state.completedLessons,id] }; const next = await saveState(candidate); return { state:next, awarded:next.completedLessons.includes(id), leveledUp:next.level > state.level }; }

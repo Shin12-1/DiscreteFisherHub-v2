@@ -1,4 +1,4 @@
-import { getState, saveState, touchStreak, completeLesson } from '../core/state.js';
+import { getState, saveState, saveProfilePreferences, touchStreak, completeLesson } from '../core/state.js';
 import { initTheme, toggleTheme } from '../core/theme.js';
 import { shell } from '../components/shell.js';
 import { pageUrl } from '../core/router.js';
@@ -511,6 +511,7 @@ async function render() {
         input.focus();
         return;
       }
+      let accountSettingsSaved = false;
       try {
         const current = await getState();
         const nickname = input.value.trim();
@@ -526,19 +527,23 @@ async function render() {
           reduceMotion: form.elements.reduceMotion.checked
         });
         const theme = form.elements.theme.value === 'dark' ? 'dark' : 'light';
-        const next = await saveState({ ...current, nickname, theme, profilePreferences });
+        const next = await saveState({ ...current, nickname, theme });
+        accountSettingsSaved = true;
         app.querySelector('.profile-summary h2').textContent = nickname;
         app.querySelector('.profile-avatar').textContent = nickname.charAt(0).toUpperCase();
         input.value = nickname;
         document.documentElement.dataset.theme = next.theme;
-        document.documentElement.dataset.reduceMotion = String(next.profilePreferences.reduceMotion);
+        document.documentElement.dataset.reduceMotion = String(profilePreferences.reduceMotion);
+        await saveProfilePreferences(profilePreferences);
         status.hidden = false;
         status.textContent = 'Profile settings saved.';
       } catch (error) {
         console.error('Could not save profile settings.', error);
         status.hidden = false;
         status.setAttribute('role', 'alert');
-        status.textContent = 'Could not save your profile settings. Please try again.';
+        status.textContent = accountSettingsSaved
+          ? 'Account settings were saved, but study preferences could not be saved. Please try again.'
+          : 'Could not save your profile settings. Please try again.';
       }
     });
     app.querySelectorAll('[data-start-practice]').forEach((button) => {

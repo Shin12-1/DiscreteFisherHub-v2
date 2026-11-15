@@ -703,7 +703,7 @@ test('profile: signed-in preferences save locally without syncing', async () => 
     seed: savedAuthToken,
     supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
   });
-  const { getState, saveState } = await import('../js/core/state.js');
+  const { getState, saveState, saveProfilePreferences } = await import('../js/core/state.js');
   const state = await getState();
   const profilePreferences = {
     program: 'BS Computer Science',
@@ -716,8 +716,34 @@ test('profile: signed-in preferences save locally without syncing', async () => 
     assessmentUpdates: false,
     reduceMotion: true
   };
-  await saveState({ ...state, nickname: 'Kian Reyes', profilePreferences });
+  await saveState({ ...state, nickname: 'Kian Reyes' });
+  await saveProfilePreferences(profilePreferences);
   assert.deepEqual(page.storage('dfh:profile-preferences'), profilePreferences);
+  assert.deepEqual(databaseCalls, [{ table: 'profiles', payload: { nickname: 'Kian Reyes' } }]);
+  page.done();
+});
+
+test('profile: learner-state saves do not depend on local preference storage', async () => {
+  const session = { user: { id: 'user-profile-preferences-storage-error', email: 'student@example.com' } };
+  const databaseCalls = [];
+  const page = await openPage('pages/profile.html', {
+    seed: savedAuthToken,
+    supabase: { createClient: () => createSessionClient(session, {}, null, databaseCalls) }
+  });
+  const { getState, saveState } = await import('../js/core/state.js');
+  const current = await getState();
+  const { getLocalStorageAdapter } = await import('../js/core/storage.js');
+  const localAdapter = getLocalStorageAdapter();
+  const set = localAdapter.set;
+  localAdapter.set = async (key, value) => {
+    if (key === 'profile-preferences') throw new Error('Profile preferences storage is unavailable.');
+    return set.call(localAdapter, key, value);
+  };
+  try {
+    await saveState({ ...current, nickname: 'Kian Reyes' });
+  } finally {
+    localAdapter.set = set;
+  }
   assert.deepEqual(databaseCalls, [{ table: 'profiles', payload: { nickname: 'Kian Reyes' } }]);
   page.done();
 });
